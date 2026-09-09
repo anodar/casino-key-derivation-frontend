@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Casino Key Derivation</title>
+<style>
+  :root {
+    --bg: #0b1f16; --felt: #123b2a; --felt-2: #0f3324; --card: #16271f; --line: #2a4a3b;
+    --text: #e8f1ec; --muted: #9db8aa; --gold: #f2c14e; --gold-2: #d4a72c; --red: #e05a5a; --green: #3ccf7a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 600px at 50% -10%, var(--felt) 0%, var(--bg) 70%); color: var(--text); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .5px; }
+  h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; justify-content: space-between; }
+  .wide { grid-column: 1 / -1; }
+  .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); text-transform: none; letter-spacing: 0; }
+  .badge.Open { color: var(--green); border-color: var(--green); }
+  .badge.Rolling { color: var(--gold); border-color: var(--gold); animation: pulse 1s infinite; }
+  .badge.Paying { color: var(--gold); border-color: var(--gold); }
+  @keyframes pulse { 50% { opacity: .4; } }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+  .stat { background: var(--felt-2); border-radius: 10px; padding: 10px 12px; }
+  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  .stat .v { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .stat .v.gold { color: var(--gold); }
+  .bar { height: 12px; background: var(--felt-2); border-radius: 999px; overflow: hidden; margin: 6px 0 4px; }
+  .bar > div { height: 100%; background: linear-gradient(90deg, var(--gold-2), var(--gold)); width: 0; transition: width .4s; }
+  .hint { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  td.num { font-weight: 700; color: var(--gold); }
+  td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; }
+  .grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; margin: 10px 0 14px; }
+  .grid button { position: relative; aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); background: var(--felt-2); color: var(--text); font-weight: 600; cursor: pointer; font-size: 13px; }
+  .grid button:hover { border-color: var(--gold); }
+  .grid button.sel { background: var(--gold); color: #1b1b1b; border-color: var(--gold); }
+  .grid button.taken::after { content: attr(data-n); position: absolute; top: -5px; right: -5px; background: var(--red); color: #fff; font-size: 10px; line-height: 16px; min-width: 16px; border-radius: 999px; padding: 0 4px; }
+  .grid button.mine { box-shadow: inset 0 0 0 2px var(--green); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  input[type=number] { background: var(--felt-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 10px; font-size: 15px; width: 130px; }
+  .btn { background: var(--gold); color: #1b1b1b; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 700; font-size: 15px; cursor: pointer; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  .roll { font-size: 72px; font-weight: 800; color: var(--gold); line-height: 1; text-align: center; margin: 6px 0 10px; }
+  .roll small { display: block; font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 4px; }
+  .banner { grid-column: 1 / -1; background: linear-gradient(90deg, #2a4a1f, #1e3d2c); border: 1px solid var(--green); border-radius: 14px; padding: 16px 20px; display: none; }
+  .banner.show { display: block; }
+  .banner.win { border-color: var(--gold); background: linear-gradient(90deg, #4a3a10, #2b2a12); }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #223; color: #fff; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); display: none; max-width: 90vw; }
+  .toast.show { display: block; }
+  .toast.err { border-color: var(--red); }
+  a { color: var(--gold); }
+  .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Casino Key Derivation <small id="contract-id"></small></h1>
+  <div class="row" id="wallet">
+    <span id="account" class="hint"></span>
+    <button class="btn ghost" id="connect">Connect wallet</button>
+  </div>
+</header>
+
+<main>
+  <div class="banner" id="banner"></div>
+
+  <section class="card">
+    <h2><span>Round <span id="round-id">–</span></span> <span class="badge" id="state">…</span></h2>
+    <div class="stats">
+      <div class="stat"><div class="k">Bets this round</div><div class="v" id="total">–</div></div>
+      <div class="stat"><div class="k">Jackpot carried</div><div class="v gold" id="carry">–</div></div>
+      <div class="stat"><div class="k">Pot if it rolls now</div><div class="v gold" id="pot">–</div></div>
+    </div>
+    <div class="bar"><div id="bar"></div></div>
+    <div class="hint" id="progress"></div>
+    <table id="bets-table" style="margin-top:12px">
+      <thead><tr><th>Player</th><th>Number</th><th>Bet</th></tr></thead>
+      <tbody id="bets"></tbody>
+    </table>
+    <div class="empty" id="no-bets">No bets yet. Be the first.</div>
+  </section>
+
+  <section class="card">
+    <h2>Place your bet</h2>
+    <div class="hint">Pick a number. Bets on the rolled number split the whole pot, pro rata. No winner: the pot rolls over.</div>
+    <div class="grid" id="numbers"></div>
+    <div class="row">
+      <label class="hint" for="amount">Amount (NEAR)</label>
+      <input type="number" id="amount" min="0" step="0.1">
+      <button class="btn" id="bet" disabled>Bet on –</button>
+    </div>
+    <div class="hint" id="bet-hint" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card">
+    <h2>Last result</h2>
+    <div id="last"></div>
+  </section>
+
+  <section class="card">
+    <h2>Recent rolls</h2>
+    <table><thead><tr><th>Round</th><th>Roll</th><th>big_c</th></tr></thead><tbody id="rolls"></tbody></table>
+    <div class="hint" style="margin-top:8px">Each roll is <span class="mono">sha256(big_c)[..8] as u64 LE % 100</span>, where big_c is the MPC network's derived key for <span class="mono">(contract, "round-N")</span>, pairing-verified on-chain before the casino sees it.</div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/near-api-js@2.1.4/dist/near-api-js.min.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const CONTRACT = params.get('contract') || 'casino_key_derivation.testnet';
+const RPC = params.get('rpc') || 'https://rpc.testnet.fastnear.com';
+const WALLET = 'https://testnet.mynearwallet.com';
+const EXPLORER = 'https://testnet.nearblocks.io';
+const GAS = '250000000000000';
+const POLL_MS = 3000;
+
+const $ = id => document.getElementById(id);
+$('contract-id').textContent = CONTRACT;
+
+// ---- formatting ----
+const YOCTO = 10n ** 24n;
+function fmtNear(yocto, digits = 2) {
+  const v = BigInt(yocto);
+  const whole = v / YOCTO;
+  const frac = ((v % YOCTO) * 10n ** BigInt(digits)) / YOCTO;
+  return `${whole}.${frac.toString().padStart(digits, '0')} Ⓝ`;
+}
+function toYocto(near) {
+  const [w, f = ''] = String(near).split('.');
+  return (BigInt(w || 0) * YOCTO + BigInt((f + '0'.repeat(24)).slice(0, 24))).toString();
+}
+const short = s => s.length > 28 ? s.slice(0, 14) + '…' + s.slice(-10) : s;
+
+// ---- RPC views ----
+async function view(method, args = {}) {
+  const res = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: '1', method: 'query', params: {
+      request_type: 'call_function', finality: 'final', account_id: CONTRACT, method_name: method,
+      args_base64: btoa(JSON.stringify(args)) } }) });
+  const json = await res.json();
+  if (json.error) throw new Error(JSON.stringify(json.error));
+  if (json.result.error) throw new Error(json.result.error);
+  return JSON.parse(new TextDecoder().decode(new Uint8Array(json.result.result)));
+}
+
+// ---- wallet ----
+let wallet = null, accountId = null;
+async function initWallet() {
+  if (typeof nearApi === 'undefined') { $('connect').textContent = 'Wallet library failed to load'; $('connect').disabled = true; return; }
+  const near = await nearApi.connect({ networkId: 'testnet', nodeUrl: RPC, walletUrl: WALLET,
+    helperUrl: 'https://helper.testnet.near.org', keyStore: new nearApi.keyStores.BrowserLocalStorageKeyStore() });
+  wallet = new nearApi.WalletConnection(near, 'casino');
+  accountId = wallet.isSignedIn() ? wallet.getAccountId() : null;
+  renderWallet();
+}
+function renderWallet() {
+  $('account').textContent = accountId || '';
+  $('connect').textContent = accountId ? 'Sign out' : 'Connect wallet';
+  updateBetButton();
+}
+$('connect').onclick = () => {
+  if (!wallet) return;
+  if (accountId) { wallet.signOut(); accountId = null; renderWallet(); }
+  else wallet.requestSignIn({ contractId: CONTRACT, methodNames: ['place_bet'] });
+};
+
+// ---- betting ----
+let selected = null, round = null, lastSeenRound = null, lastResult = null;
+const grid = $('numbers');
+for (let n = 0; n < 100; n++) {
+  const b = document.createElement('button');
+  b.textContent = n;
+  b.onclick = () => { selected = n; [...grid.children].forEach(c => c.classList.toggle('sel', +c.textContent === n)); updateBetButton(); };
+  grid.appendChild(b);
+}
+function updateBetButton() {
+  const btn = $('bet');
+  btn.textContent = selected === null ? 'Bet on –' : `Bet on ${selected}`;
+  const open = round && round.state === 'Open';
+  btn.disabled = !(wallet && accountId && selected !== null && open);
+  $('bet-hint').textContent = !accountId ? 'Connect a testnet wallet to bet.'
+    : !open ? 'Round is settling, bets reopen in a moment.'
+    : round ? `Minimum bet ${fmtNear(round.min_bet)}. You will be redirected to the wallet to approve.` : '';
+}
+$('bet').onclick = async () => {
+  const amount = $('amount').value;
+  if (round && BigInt(toYocto(amount)) < BigInt(round.min_bet)) return toast(`Minimum bet is ${fmtNear(round.min_bet)}`, true);
+  try {
+    await wallet.account().functionCall({ contractId: CONTRACT, methodName: 'place_bet',
+      args: { number: selected }, gas: GAS, attachedDeposit: toYocto(amount) });
+  } catch (e) { toast(e.message || String(e), true); }
+};
+
+// ---- rendering ----
+function renderRound() {
+  $('round-id').textContent = round.round_id;
+  const st = $('state'); st.textContent = round.state; st.className = 'badge ' + round.state;
+  $('total').textContent = fmtNear(round.total_bets);
+  $('carry').textContent = fmtNear(round.carry);
+  $('pot').textContent = fmtNear((BigInt(round.total_bets) + BigInt(round.carry)).toString());
+  const pct = Math.min(100, Number(BigInt(round.total_bets) * 100n / BigInt(round.threshold)));
+  $('bar').style.width = pct + '%';
+  $('progress').textContent = `${fmtNear(round.total_bets)} of ${fmtNear(round.threshold)} needed to roll (${pct}%)`;
+  const tb = $('bets'); tb.innerHTML = '';
+  for (const b of round.bets) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${b.player === accountId ? '<b>you</b>' : short(b.player)}</td><td class="num">${b.number}</td><td>${fmtNear(b.amount)}</td>`;
+    tb.appendChild(tr);
+  }
+  $('bets-table').style.display = round.bets.length ? '' : 'none';
+  $('no-bets').style.display = round.bets.length ? 'none' : '';
+  if (!$('amount').dataset.touched) $('amount').value = Number(BigInt(round.min_bet) * 10000n / YOCTO) / 10000;
+  const counts = {}, mine = new Set();
+  for (const b of round.bets) { counts[b.number] = (counts[b.number] || 0) + 1; if (b.player === accountId) mine.add(b.number); }
+  [...grid.children].forEach((c, n) => {
+    c.classList.toggle('taken', !!counts[n]); c.dataset.n = counts[n] || '';
+    c.classList.toggle('mine', mine.has(n));
+  });
+  updateBetButton();
+}
+$('amount').oninput = () => { $('amount').dataset.touched = '1'; };
+
+function renderLast(r) {
+  const el = $('last');
+  if (!r) { el.innerHTML = '<div class="empty">No round settled yet.</div>'; return; }
+  const won = r.payouts.some(p => p.player === accountId);
+  const rows = r.payouts.map(p => `<tr><td>${p.player === accountId ? '<b>you</b>' : short(p.player)}</td><td>${fmtNear(p.amount)}</td></tr>`).join('');
+  el.innerHTML = r.roll === null
+    ? `<div class="roll">—<small>Round ${r.round_id}: the MPC request timed out, all ${fmtNear(r.pot)} refunded</small></div>`
+    : `<div class="roll">${r.roll}<small>Round ${r.round_id} · pot ${fmtNear(r.pot)} · ${r.payouts.length ? r.payouts.length + ' winner' + (r.payouts.length > 1 ? 's' : '') : 'no winner, pot carried over'}${won ? ' · you won!' : ''}</small></div>`
+      + (rows ? `<table><thead><tr><th>Winner</th><th>Payout</th></tr></thead><tbody>${rows}</tbody></table>` : '')
+      + `<div class="hint mono" style="margin-top:8px">big_c ${r.big_c}</div>`;
+}
+
+const rollCache = new Map();
+async function renderRolls(currentRound) {
+  const ids = []; for (let i = currentRound - 1; i >= 0 && ids.length < 8; i--) ids.push(i);
+  await Promise.all(ids.filter(i => !rollCache.has(i)).map(async i => rollCache.set(i, await view('get_roll', { round_id: i }))));
+  $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(i);
+    return `<tr><td>${i}</td><td class="num">${r ? r.roll : '—'}</td><td class="mono">${r ? r.big_c : 'not recorded'}</td></tr>`; }).join('')
+    || '<tr><td colspan="3" class="empty">No rolls yet.</td></tr>';
+}
+
+function showBanner(r) {
+  const won = r.payouts.find(p => p.player === accountId);
+  const b = $('banner');
+  b.className = 'banner show' + (won ? ' win' : '');
+  b.innerHTML = won ? `<b>Round ${r.round_id} rolled ${r.roll}. You won ${fmtNear(won.amount)}!</b>`
+    : r.roll === null ? `<b>Round ${r.round_id} timed out; bets were refunded.</b>`
+    : `<b>Round ${r.round_id} rolled ${r.roll}.</b> ${r.payouts.length ? r.payouts.length + ' winner(s) took ' + fmtNear(r.pot) : 'Nobody hit it, ' + fmtNear(r.pot) + ' carries over.'}`;
+  setTimeout(() => b.classList.remove('show'), 15000);
+}
+
+let toastTimer;
+function toast(msg, err = false) {
+  const t = $('toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 6000);
+}
+
+// ---- polling ----
+async function poll() {
+  try {
+    const [r, last] = await Promise.all([view('get_round'), view('get_last_round')]);
+    round = r; renderRound();
+    if (last && (!lastResult || last.round_id !== lastResult.round_id)) {
+      if (lastResult !== null || lastSeenRound !== null) showBanner(last);
+      lastResult = last; renderLast(last); rollCache.delete(last.round_id);
+    } else if (!last && lastResult === null) renderLast(null);
+    if (lastSeenRound !== r.round_id) { lastSeenRound = r.round_id; await renderRolls(r.round_id); }
+  } catch (e) { toast('RPC error: ' + e.message, true); }
+}
+
+// ---- wallet redirect result ----
+if (params.get('transactionHashes')) {
+  const h = params.get('transactionHashes').split(',')[0];
+  toast('Bet placed.'); $('last').insertAdjacentHTML('afterbegin', `<div class="hint">Your tx: <a target="_blank" href="${EXPLORER}/txns/${h}">${short(h)}</a></div>`);
+  history.replaceState({}, '', location.pathname + (params.get('contract') ? `?contract=${CONTRACT}` : ''));
+} else if (params.get('errorCode')) {
+  toast('Wallet: ' + decodeURIComponent(params.get('errorMessage') || params.get('errorCode')), true);
+  history.replaceState({}, '', location.pathname);
+}
+
+initWallet().catch(e => toast('Wallet init failed: ' + e.message, true));
+poll(); setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>
