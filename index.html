@@ -14,7 +14,9 @@
   [hidden] { display: none !important; } /* #game sets display:grid, which would beat the attribute */
   body { margin: 0; background: radial-gradient(1200px 600px at 50% -10%, var(--felt) 0%, var(--bg) 70%); color: var(--text); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  h1 { margin: 0; font-size: 22px; letter-spacing: .5px; }
+  /* min-width: 0 so the contract pill below the title can ellipsis instead of
+     holding the header open — the id is long and does not wrap. */
+  h1 { margin: 0; font-size: 22px; letter-spacing: .5px; min-width: 0; }
   h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
   .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .home-btn { flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; }
@@ -22,6 +24,10 @@
   #game { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
   @media (max-width: 860px) { #game { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  /* A grid item's automatic minimum is its content, so one wide table would
+     stretch its card past the viewport and take the page sideways with it.
+     Let the cards shrink to their track and have wide content scroll instead. */
+  #game > .card, #game > .banner { min-width: 0; }
   .card h2 { margin: 0 0 12px; font-size: 16px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; justify-content: space-between; }
   .wide { grid-column: 1 / -1; }
   .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); text-transform: none; letter-spacing: 0; }
@@ -31,7 +37,9 @@
   .badge.Paying { color: var(--gold); border-color: var(--gold); }
   @keyframes pulse { 50% { opacity: .4; } }
   .badge.offline { opacity: .5; text-decoration: line-through; }
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+  /* Three across where they fit, two then one as the screen narrows: the
+     amounts cannot hyphenate, so fixed thirds would overflow on a phone. */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 12px; margin-bottom: 14px; }
   .stat { background: var(--felt-2); border-radius: 10px; padding: 10px 12px; }
   .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
   .stat .v { font-size: 20px; font-weight: 700; margin-top: 2px; }
@@ -97,6 +105,10 @@
      line and lets the player pill ellipsis instead of wrapping six chips. */
   #bets .card-nums { flex-wrap: nowrap; gap: 3px; }
   #bets .card-nums b { min-width: 20px; height: 20px; padding: 0 3px; font-size: 11px; }
+  /* Which makes the table wider than a phone: four columns of bingo do not fit
+     in 390px however the rest is squeezed. It scrolls in its own box, so the
+     page itself never does. */
+  .tscroll { overflow-x: auto; overscroll-behavior-x: contain; }
   /* How full a card is: the number, plus a bar so the race reads at a glance. */
   .hits { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .hits .pbar { width: 44px; height: 6px; border-radius: 999px; background: var(--felt-2); overflow: hidden; }
@@ -348,10 +360,12 @@
       </div>
     </div>
     <div id="my-cards"></div>
-    <table id="bets-table" style="margin-top:12px">
-      <thead><tr><th>Player</th><th id="bets-col">Number</th><th id="hits-col" hidden>Hits</th><th>Bet</th></tr></thead>
-      <tbody id="bets"></tbody>
-    </table>
+    <div class="tscroll" style="margin-top:12px">
+      <table id="bets-table">
+        <thead><tr><th>Player</th><th id="bets-col">Number</th><th id="hits-col" hidden>Hits</th><th>Bet</th></tr></thead>
+        <tbody id="bets"></tbody>
+      </table>
+    </div>
     <div class="empty" id="no-bets">No bets yet. Be the first.</div>
   </section>
 
@@ -385,7 +399,7 @@
 
   <section class="card">
     <h2>Recent draws</h2>
-    <table><thead><tr><th>Round</th><th>Numbers drawn</th><th>last big_c</th></tr></thead><tbody id="rolls"></tbody></table>
+    <div class="tscroll"><table><thead><tr><th>Round</th><th>Numbers drawn</th><th>last big_c</th></tr></thead><tbody id="rolls"></tbody></table></div>
     <div class="hint" style="margin-top:8px">Every draw is one <span class="mono">sha256(preimage) as a big-endian u256</span>, reduced over the numbers still in the drum — so a repeat is reconsidered rather than drawn twice. The <span class="mono">preimage</span> is the compact JSON of <span class="mono">{input, draw, drawn, big_c}</span>: the round's public data (game, round, limits, pot, every bet) from <span class="mono">get_roll_input</span>, the index of this draw, the numbers already out, and <span class="mono">big_c</span>, the MPC network's derived key for <span class="mono">(contract, path)</span> — path <span class="mono">round-N</span> for game 0 and <span class="mono">game-G-round-N</span> otherwise, plus <span class="mono">-draw-D</span> from the second draw on — pairing-verified on-chain before the casino sees it. Single-outcome games settle on the first draw; bingo keeps drawing until a card is full. The check mark means this page recomputed every number of the round.</div>
   </section>
 </main>
@@ -979,7 +993,7 @@ function renderLast(r) {
     : g && g.kind === 'CoinFlip' && g.outcomes === 2
       ? coinFlip(roll) + `<div class="roll-cap">${cap}</div>`
       : `<div class="roll">${label(roll)}<small>${cap}</small></div>`)
-    + (rows ? `<table><thead><tr><th>Winner</th><th>Payout</th></tr></thead><tbody>${rows}</tbody></table>` : '')
+    + (rows ? `<div class="tscroll"><table><thead><tr><th>Winner</th><th>Payout</th></tr></thead><tbody>${rows}</tbody></table></div>` : '')
     + `<div class="hint mono" style="margin-top:8px">big_c ${r.big_cs[r.big_cs.length - 1]}</div>`;
 }
 
