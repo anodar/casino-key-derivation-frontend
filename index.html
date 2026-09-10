@@ -33,6 +33,7 @@
   .bar { height: 12px; background: var(--felt-2); border-radius: 999px; overflow: hidden; margin: 6px 0 4px; }
   .bar > div { height: 100%; background: linear-gradient(90deg, var(--gold-2), var(--gold)); width: 0; transition: width .4s; }
   .hint { color: var(--muted); font-size: 13px; }
+  #balance { color: var(--gold); font-weight: 600; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
   th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
@@ -71,6 +72,7 @@
   <h1>Casino Key Derivation <small id="contract-id"></small></h1>
   <div class="row" id="wallet">
     <span id="account" class="hint"></span>
+    <span id="balance" class="hint" title="Balance at page load; refresh to update"></span>
     <button class="btn ghost" id="connect">Connect wallet</button>
   </div>
 </header>
@@ -193,8 +195,22 @@ async function initWallet() {
   accountId = (await wallet.isSignedInAsync()) ? wallet.getAccountId() : null;
   renderWallet();
 }
+// Read once per page load (not on the poll timer): the balance is a
+// convenience, and every extra RPC call risks the rate limit.
+async function showBalance() {
+  $('balance').textContent = '';
+  if (!accountId) return;
+  try {
+    const res = await fetch(RPCS[rpcIndex], { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: '1', method: 'query', params: {
+        request_type: 'view_account', finality: 'final', account_id: accountId } }) });
+    const json = await res.json();
+    if (json.result) $('balance').textContent = fmtNear(json.result.amount);
+  } catch (e) { /* leave blank */ }
+}
 function renderWallet() {
   $('account').textContent = accountId || '';
+  showBalance();
   $('connect').textContent = accountId ? 'Sign out' : 'Connect wallet';
   updateBetButton();
 }
