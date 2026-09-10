@@ -60,6 +60,27 @@
   .grid button.sel.out { color: #1b1b1b; }
   .grid button.sel.out::before { background: #1b1b1b; box-shadow: none; }
   .grid.big button { aspect-ratio: 2 / 1; font-size: 22px; }
+  /* While the MPC network derives the next key the board is a live bingo board,
+     not a bet form: the numbers still in the drum breathe until one comes out. */
+  .grid.rolling button:not(.out) { animation: candidate 1.4s ease-in-out infinite; }
+  @keyframes candidate { 50% { border-color: var(--gold-2); background: #452a71; } }
+  .grid.locked button { cursor: default; }
+  /* The number that just came out, matched to `.last` in the drum. Outline
+     rather than box-shadow, which `.mine` already uses for its ring. */
+  .grid button.just { animation: popped .9s ease-out; }
+  @keyframes popped {
+    0% { transform: scale(1); outline: 0 solid rgba(242, 193, 78, .9); }
+    35% { transform: scale(1.16); outline: 3px solid rgba(242, 193, 78, .9); }
+    100% { transform: scale(1); outline: 11px solid rgba(242, 193, 78, 0); }
+  }
+  /* One line above the board carrying what the board cannot show by itself:
+     which draw is in flight, and how full your card is. */
+  .board-live { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-height: 32px; margin-bottom: 2px;
+    color: var(--muted); font-size: 13px; }
+  .board-live b { color: var(--gold); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .board-live .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--gold);
+    animation: pulse 1s infinite; }
+  .board-live .dot.wait { background: var(--green); animation-duration: 1.6s; }
   /* The numbers already drawn, in the order they came out. */
   .drum { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
   .drum span { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
@@ -273,6 +294,8 @@
     .game-card, .game-card:hover { transform: none; }
     .gc-play, .gc-play i, .game-card:hover .gc-play i { transition: none; transform: none; }
     .game-card:hover .coin, .game-card:hover .wheel, .game-card:hover .ball { animation: none; }
+    .grid.rolling button:not(.out), .grid button.just { animation: none; }
+    .board-live .dot { animation: none; }
     .res-wheel.spin .face, .res-wheel.spin .peg { animation: none; }
     .res-wheel.spin .win-ring { animation: none; opacity: 1; }
     .res-coin.flip .coin3d, .res-coin.flip .toss, .res-coin.flip .coin-shadow { animation: none; }
@@ -340,6 +363,7 @@
       <button class="btn ghost mini" type="button" id="clear">Clear</button>
       <span class="hint" id="pick-count"></span>
     </div>
+    <div class="board-live" id="board-live" hidden aria-live="polite"></div>
     <div class="grid" id="numbers"></div>
     <div class="row">
       <label class="hint amount-label" for="amount">Amount</label>
@@ -384,6 +408,9 @@ const RPC = RPCS[0];
 const EXPLORER = 'https://testnet.nearblocks.io';
 const GAS = '250000000000000';
 const POLL_MS = 8000;
+// A draw lands about two blocks after the request, so a round in flight is
+// polled far more often than an open one: the board is the thing being watched.
+const POLL_FAST_MS = 2000;
 const BRAND = 'Casino Key Derivation';
 // null = the lobby; a number = that game's table.
 let gameId = params.has('game') ? Number(params.get('game')) : null;
@@ -685,8 +712,8 @@ function updateBetButton() {
   btn.disabled = !(walletApi && accountId && ready && open && !mine);
   $('bet-hint').textContent = !round ? 'Loading round…'
     : !accountId ? 'Connect a testnet wallet to bet.'
-    : !open ? (round.state === 'Drawing' ? 'The drum is still turning; bets reopen once the round settles.'
-      : 'Round is settling, bets reopen in a moment.')
+    : !open ? (round.state === 'Paying' ? 'Round is settling, bets reopen in a moment.'
+      : 'The drum is still turning; bets reopen once the round settles.')
     : mine ? `Your ${picks > 1 ? 'card' : 'pick'}: ${cards(mine.numbers)} for ${fmtNear(mine.amount)}. One bet per player per round — bet again once this round settles.`
     : `${picks > 1 ? `Pick ${picks} numbers. ` : ''}Minimum bet ${fmtNear(round.min_bet)}. You will be redirected to the wallet to approve.`;
 }
@@ -775,14 +802,49 @@ function renderRound() {
     counts[n] = (counts[n] || 0) + 1;
     if (b.player === accountId) mine.add(n);
   }
+  const open = round.state === 'Open';
+  const newest = round.drawn.length ? round.drawn[round.drawn.length - 1] : -1;
   [...grid.children].forEach((c, n) => {
     c.classList.toggle('taken', !!counts[n]); c.dataset.n = counts[n] || '';
     c.classList.toggle('mine', mine.has(n));
     c.classList.toggle('out', out.has(n));
+    // Toggling a class that is already there does not restart the animation, so
+    // this flashes only when a different number comes out.
+    c.classList.toggle('just', n === newest);
+    c.disabled = !open; // mid-round the board is a bingo board, not a bet form
   });
+  grid.classList.toggle('rolling', round.state === 'Rolling');
+  grid.classList.toggle('locked', !open);
+  $('pick-tools').hidden = picks < 2 || !open; // nothing to pick while the drum turns
+  renderBoardLive(out, picks, newest);
   renderMyCards(out, picks);
   renderDrum();
   updateBetButton();
+}
+
+// The board's own status line, in the slot the pick tools use while betting is
+// open: which draw the network is working on, and how full your card is — the
+// two things the cells cannot show by themselves.
+function renderBoardLive(out, picks, newest) {
+  const el = $('board-live'), g = game();
+  if (!g || round.state === 'Open') { el.hidden = true; el.innerHTML = ''; return; }
+  const drawn = round.drawn.length, left = g.outcomes - drawn, b = myBet();
+  const parts = [
+    round.state === 'Rolling'
+      ? `<span class="dot"></span>Deriving the key for draw <b>${drawn + 1}</b>…`
+      : round.state === 'Drawing'
+        ? `<span class="dot wait"></span>Waiting for the next number`
+        : `<span class="dot"></span>Round is settling`,
+  ];
+  if (drawn) {
+    parts.push(`<b>${drawn}</b> out · <b>${left}</b> still in the drum`
+      + (newest >= 0 ? ` · last <b>${esc(label(newest))}</b>` : ''));
+  }
+  if (picks > 1 && b) {
+    parts.push(`your card <b>${b.numbers.filter(n => out.has(n)).length}/${picks}</b>`);
+  }
+  el.innerHTML = parts.join(' <span aria-hidden="true">·</span> ');
+  el.hidden = false;
 }
 
 // Your own card and what is left to come: the one thing a bingo player watches,
@@ -983,10 +1045,27 @@ function toast(msg, err = false) {
 }
 
 // ---- polling ----
-let failures = 0, skip = 0;
+// Self-rescheduling rather than a fixed interval, so the tick can follow the
+// round: fast while the network is deriving keys, slow while bets come in, and
+// backing off after failures instead of hammering a rate-limited RPC.
+let failures = 0, polling = false, pollAgain = false, pollTimer = null;
+function pollDelay() {
+  if (failures) return POLL_MS * Math.min(failures, 7); // 8s, 16s, … ~56s
+  if (document.hidden) return POLL_MS;
+  const live = round && round.state !== 'Open';
+  return !inLobby() && live ? POLL_FAST_MS : POLL_MS;
+}
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(poll, pollDelay());
+}
 async function poll() {
-  if (document.hidden && games.length) return; // background tab: keep the first load, skip refreshes
-  if (skip > 0) { skip--; return; }            // back off after failures instead of hammering
+  clearTimeout(pollTimer);
+  // One snapshot in flight at a time, so a slow reply cannot land after a newer
+  // one; a poll asked for meanwhile folds into it and runs the moment it ends.
+  if (polling) { pollAgain = true; return; }
+  if (document.hidden && games.length) return schedulePoll(); // background tab: keep the first load
+  polling = true;
   const g = gameId;
   try {
     // One call per tick: games + round + last result. In the lobby only the
@@ -994,7 +1073,7 @@ async function poll() {
     const snap = await view('get_snapshot', g === null ? {} : { game_id: g });
     if (g !== gameId) return; // navigated away while this was in flight
     snapshot = snap; setGames(snap.games);
-    if (inLobby()) { failures = 0; skip = 0; return; } // setGames redrew the cards if anything moved
+    if (inLobby()) { failures = 0; return; } // setGames redrew the cards if anything moved
     const r = snap.round, last = snap.last_round;
     round = r; renderRound(); autoDraw();
     if (last && (!lastResult || last.round_id !== lastResult.round_id)) {
@@ -1002,12 +1081,16 @@ async function poll() {
       lastResult = last; renderLast(last); rollCache.delete(`${g}:${last.round_id}`);
     } else if (!last) renderLast(null);
     if (lastSeenRound !== r.round_id) { lastSeenRound = r.round_id; await renderRolls(r.round_id); }
-    failures = 0; skip = 0; $('state').classList.remove('offline');
-  } catch (e) { pollFailed(e); }
+    failures = 0; $('state').classList.remove('offline');
+  } catch (e) {
+    pollFailed(e);
+  } finally {
+    polling = false;
+    if (pollAgain) { pollAgain = false; poll(); } else schedulePoll();
+  }
 }
 function pollFailed(e) {
   failures++;
-  skip = Math.min(failures, 6); // 8s, 16s, ... up to ~56s between attempts
   $('state').classList.add('offline');
   if (failures === 3) toast('RPC busy (rate limited), retrying with longer pauses', true);
 }
@@ -1026,7 +1109,6 @@ $('contract-id').innerHTML = tag(CONTRACT, { kind: 'contract', role: 'contract',
 renderWallet();
 renderView();
 poll();
-setInterval(poll, POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 </script>
 <script>
