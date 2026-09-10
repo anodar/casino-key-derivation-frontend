@@ -83,16 +83,78 @@
   .amount-label { flex: none; }
   .roll { font-size: 72px; font-weight: 800; color: var(--gold); line-height: 1; text-align: center; margin: 6px 0 10px; }
   .roll small { display: block; font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 4px; }
-  /* Result spinner: the lobby wheel, big enough to label, spun clockwise and
-     left with the rolled slot under the pointer. */
+  /* Result spinner: the lobby wheel, big enough to label, thrown clockwise and
+     left with the rolled slot under the pointer. It overruns the mark and
+     rocks back onto it, the way a wheel settles against the peg that stopped it. */
   .res-wheel { width: 100%; max-width: 248px; margin: 2px auto 0; }
   .res-wheel svg { display: block; width: 100%; height: auto; }
   .res-wheel .face { transform-origin: 100px 104px; transform: rotate(var(--spin)); }
-  .res-wheel.spin .face { animation: wheel-land 2.2s cubic-bezier(.2, .68, .25, 1) both; }
-  @keyframes wheel-land { from { transform: rotate(calc(var(--spin) - 1440deg)); } to { transform: rotate(var(--spin)); } }
-  .res-wheel.spin .win-ring { animation: win-ring .45s ease-out 2.1s both; }
+  .res-wheel.spin .face { animation: wheel-land 3s both; }
+  @keyframes wheel-land {
+    0% { transform: rotate(calc(var(--spin) - 1800deg)); animation-timing-function: cubic-bezier(.12, .72, .18, 1); }
+    88% { transform: rotate(calc(var(--spin) + 6deg)); animation-timing-function: ease-out; }
+    100% { transform: rotate(var(--spin)); }
+  }
+  /* The pointer is knocked aside by every peg that goes past, so the ticks
+     crowd together while the wheel is quick and thin out as it runs down.
+     The stops are placed by hand to track the spin's deceleration. */
+  .res-wheel .peg { transform-box: fill-box; transform-origin: top center; }
+  .res-wheel.spin .peg { animation: peg-tick 3s both; }
+  @keyframes peg-tick {
+    0%, 100% { transform: rotate(0deg); }
+    3% { transform: rotate(18deg); }   6% { transform: rotate(0deg); }
+    9% { transform: rotate(18deg); }  12% { transform: rotate(0deg); }
+    16% { transform: rotate(17deg); } 19% { transform: rotate(0deg); }
+    24% { transform: rotate(16deg); } 27% { transform: rotate(0deg); }
+    33% { transform: rotate(15deg); } 36% { transform: rotate(0deg); }
+    43% { transform: rotate(14deg); } 47% { transform: rotate(0deg); }
+    55% { transform: rotate(13deg); } 59% { transform: rotate(0deg); }
+    68% { transform: rotate(11deg); } 73% { transform: rotate(0deg); }
+    82% { transform: rotate(9deg); }  87% { transform: rotate(0deg); }
+    92% { transform: rotate(6deg); }  96% { transform: rotate(1deg); }
+  }
+  .res-wheel.spin .win-ring { animation: win-ring .45s ease-out 2.9s both; }
   @keyframes win-ring { from { opacity: 0; } to { opacity: 1; } }
   .roll-cap { text-align: center; color: var(--muted); font-size: 13px; margin: 6px 0 12px; }
+  /* Result coin: tossed into the air, spinning on its edge, landing on the
+     rolled face. --end carries the landing rotation, so heads and tails both
+     come to rest face up after the same number of turns. */
+  .res-coin { position: relative; width: 100%; max-width: 248px; height: 186px; margin: 2px auto 0;
+    display: grid; place-items: center; perspective: 760px; }
+  .coin-shadow { position: absolute; bottom: 16px; left: 50%; width: 104px; height: 15px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(0, 0, 0, .55), transparent); transform: translateX(-50%); }
+  .coin3d { position: relative; width: 128px; height: 128px; transform-style: preserve-3d; transform: rotateX(var(--end)); }
+  .res-coin.flip .coin3d { animation: coin-spin 1.9s cubic-bezier(.25, .5, .25, 1) both; }
+  @keyframes coin-spin { from { transform: rotateX(0deg); } to { transform: rotateX(var(--end)); } }
+  .res-coin.flip .toss { animation: coin-toss 1.9s ease-in-out both; }
+  @keyframes coin-toss {
+    0% { transform: translateY(30px); }
+    45% { transform: translateY(-44px); }
+    76% { transform: translateY(0); }
+    86% { transform: translateY(-9px); }
+    100% { transform: translateY(0); }
+  }
+  .res-coin.flip .coin-shadow { animation: coin-shadow 1.9s ease-in-out both; }
+  @keyframes coin-shadow {
+    0% { transform: translateX(-50%) scale(1); opacity: .5; }
+    45% { transform: translateX(-50%) scale(.55); opacity: .2; }
+    76%, 100% { transform: translateX(-50%) scale(1); opacity: .5; }
+  }
+  .coin-face { position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center;
+    backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    background: radial-gradient(circle at 34% 26%, #fff2c4, #f2c14e 46%, #b8890f 100%);
+    box-shadow: inset 0 0 0 5px rgba(122, 90, 13, .35), inset 0 0 0 9px rgba(255, 255, 255, .22);
+    color: #6b4e0b; text-align: center; }
+  /* The faces sit either side of the coin's mid-plane. Coplanar faces land in a
+     z-fight the back one can win, and the gap doubles as the coin's thickness. */
+  .coin-face.heads { transform: translateZ(3px); }
+  .coin-face.tails { transform: rotateX(180deg) translateZ(3px); }
+  .coin-face b { display: block; font-size: 40px; font-weight: 800; line-height: 1; }
+  .coin-face span { display: block; margin-top: 3px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.2px; opacity: .72; }
+  /* The landed face keeps a soft halo so the result stays readable after the toss. */
+  .res-coin.flip .coin3d::after { content: ''; position: absolute; inset: -7px; border-radius: 50%;
+    border: 2px solid var(--gold); opacity: 0; animation: win-ring .4s ease-out 1.85s both; }
   .banner { grid-column: 1 / -1; background: linear-gradient(90deg, #2a4a1f, #1e3d2c); border: 1px solid var(--green); border-radius: 14px; padding: 16px 20px; display: none; }
   .banner.show { display: block; }
   .banner.win { border-color: var(--gold); background: linear-gradient(90deg, #4a3a10, #2b2a12); }
@@ -141,9 +203,19 @@
   .gc-meta div { background: var(--felt-2); border-radius: 8px; padding: 7px 9px; }
   .gc-meta dt { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; }
   .gc-meta dd { margin: 2px 0 0; font-size: 13px; font-weight: 700; }
-  .gc-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .gc-play { font-size: 13px; font-weight: 700; color: var(--gold); }
-  .game-card:hover .gc-play { text-decoration: underline; }
+  .gc-foot { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+  /* The lobby card is itself a <button>, so the call to action is a styled span
+     rather than a nested button. It grows to fill whatever the state badge leaves. */
+  .gc-play { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 10px 14px; border-radius: 10px; border: 1px solid var(--gold);
+    background: linear-gradient(180deg, var(--gold), var(--gold-2)); color: #1b1b1b;
+    font-size: 14px; font-weight: 800; letter-spacing: .4px;
+    transition: filter .15s, box-shadow .15s, transform .15s; }
+  .gc-play i { font-style: normal; transition: transform .15s; }
+  .game-card:hover .gc-play, .game-card:focus-visible .gc-play {
+    filter: brightness(1.08); box-shadow: 0 6px 18px rgba(242, 193, 78, .28); }
+  .game-card:hover .gc-play i, .game-card:focus-visible .gc-play i { transform: translateX(4px); }
+  .game-card:active .gc-play { transform: translateY(1px); filter: brightness(.95); box-shadow: none; }
   /* Card art: each game gets its own idle-still, hover-animated illustration. */
   .coin, .ball { transform-box: fill-box; transform-origin: center; }
   .game-card:hover .coin { animation: coinflip 1s ease-in-out; }
@@ -157,8 +229,12 @@
   @keyframes bob { 50% { transform: translateY(-9px); } }
   @media (prefers-reduced-motion: reduce) {
     .game-card, .game-card:hover { transform: none; }
+    .gc-play, .gc-play i, .game-card:hover .gc-play i { transition: none; transform: none; }
     .game-card:hover .coin, .game-card:hover .wheel, .game-card:hover .ball { animation: none; }
-    .res-wheel.spin .face, .res-wheel.spin .win-ring { animation: none; }
+    .res-wheel.spin .face, .res-wheel.spin .peg { animation: none; }
+    .res-wheel.spin .win-ring { animation: none; opacity: 1; }
+    .res-coin.flip .coin3d, .res-coin.flip .toss, .res-coin.flip .coin-shadow { animation: none; }
+    .res-coin.flip .coin3d::after { animation: none; opacity: 1; }
   }
 </style>
 </head>
@@ -425,7 +501,7 @@ function renderLobby() {
           <div><dt>Min bet</dt><dd>${fmtNear(g.min_bet)}</dd></div>
           <div><dt>Rolls at</dt><dd>${fmtNear(g.threshold)}</dd></div>
         </dl>
-        <div class="gc-foot"><span class="badge ${g.state}">${g.state}</span><span class="gc-play">Play →</span></div>
+        <div class="gc-foot">${g.state === 'Open' ? '' : `<span class="badge ${g.state}">${g.state}</span>`}<span class="gc-play">Play <i>→</i></span></div>
       </div>
     </button>`).join('')
     || `<div class="empty">${snapshot ? 'This contract has no games registered.' : 'Loading games…'}</div>`;
@@ -559,11 +635,13 @@ for (const [id, dir] of [['amount-down', -1], ['amount-up', 1]]) $(id).onclick =
   el.dataset.touched = '1';
 };
 
-// Crazy Spinner's result, drawn instead of printed: the wheel spins clockwise
-// and settles with the rolled slot under the pointer, then the winning slot
-// lights up. The numbers ride the wheel, so the winner comes to rest upright.
+// Crazy Spinner's result, drawn instead of printed: the wheel is thrown
+// clockwise and runs down until the rolled slot sits under the pointer, then
+// the winning slot lights up. The numbers and the pegs ride the wheel, so the
+// winner comes to rest upright and the pointer ticks off every slot it passes.
 function spinnerWheel(roll) {
   const cx = 100, cy = 104, r = 78;
+  const pt = (rad, deg) => { const t = (deg - 90) * Math.PI / 180; return [cx + rad * Math.cos(t), cy + rad * Math.sin(t)]; };
   const slices = Array.from({ length: SLOTS }, (_, i) =>
     wedge(cx, cy, r, i, `fill="${SLOT_COLS[i % 4]}" fill-opacity="${i === roll ? 1 : .72}" stroke="#2a1748" stroke-width="1"`)).join('');
   const nums = Array.from({ length: SLOTS }, (_, i) =>
@@ -571,15 +649,50 @@ function spinnerWheel(roll) {
     + ` text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif"`
     + ` font-size="${i === roll ? 22 : 17}" font-weight="800" fill="${SLOT_INK[i % 4]}" fill-opacity="${i === roll ? 1 : .7}"`
     + `>${esc(label(i))}</text>`).join('');
+  // One peg per slot divider: what the pointer ticks against, and what stops
+  // the wheel. The rolled slot's middle lands under the pointer, between two.
+  const pegs = Array.from({ length: SLOTS }, (_, i) => {
+    const [x, y] = pt(r - 3, i * SLICE);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" fill="#f6efdc" stroke="#2a1748" stroke-width="1"/>`;
+  }).join('');
   return `<div class="res-wheel spin" style="--spin:${-slotMid(roll)}deg">`
     + `<svg viewBox="0 0 200 200" role="img" aria-label="The spinner landed on ${esc(label(roll))}">`
-    + `<circle cx="${cx}" cy="${cy}" r="${r + 6}" fill="#2a1748"/>`
-    + `<g class="face">${slices}${nums}`
+    + `<defs>`
+    + `<linearGradient id="sp-bezel" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0" stop-color="#ffe6a3"/><stop offset=".5" stop-color="#c8951c"/><stop offset="1" stop-color="#8a6512"/>`
+    + `</linearGradient>`
+    + `<radialGradient id="sp-gloss"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>`
+    + `<radialGradient id="sp-hub"><stop offset="0" stop-color="#ffe6a3"/><stop offset="1" stop-color="#b8890f"/></radialGradient>`
+    + `</defs>`
+    + `<ellipse cx="${cx}" cy="${cy + r + 14}" rx="${r * .8}" ry="7" fill="#1a0f2e" fill-opacity=".45"/>`
+    + `<circle cx="${cx}" cy="${cy}" r="${r + 9}" fill="url(#sp-bezel)"/>`
+    + `<circle cx="${cx}" cy="${cy}" r="${r + 3}" fill="#2a1748"/>`
+    + `<g class="face">${slices}${pegs}${nums}`
     + wedge(cx, cy, r, roll, `class="win-ring" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"`)
     + `</g>`
-    + `<circle cx="${cx}" cy="${cy}" r="15" fill="#2a1748" stroke="#f2c14e" stroke-width="3"/>`
-    + `<path d="M88 2 h24 l-12 28 z" fill="#f2c14e" stroke="#2a1748" stroke-width="1.5"/>`
+    // Static sheen and rim shadow: they belong to the light, not the wheel, so
+    // they sit outside the spinning group and stay put as it turns.
+    + `<ellipse cx="${cx - 26}" cy="${cy - 30}" rx="46" ry="30" fill="url(#sp-gloss)" transform="rotate(-32 ${cx - 26} ${cy - 30})"/>`
+    + `<circle cx="${cx}" cy="${cy}" r="${r + 1}" fill="none" stroke="#1a0f2e" stroke-opacity=".45" stroke-width="4"/>`
+    + `<circle cx="${cx}" cy="${cy}" r="15" fill="url(#sp-hub)" stroke="#2a1748" stroke-width="3"/>`
+    + `<circle cx="${cx}" cy="${cy}" r="5" fill="#2a1748"/>`
+    + `<path class="peg" d="M88 2 h24 l-12 30 z" fill="url(#sp-bezel)" stroke="#2a1748" stroke-width="1.5" stroke-linejoin="round"/>`
     + `</svg></div>`;
+}
+
+// Coin Flip's result, drawn instead of printed: the coin is tossed, spins on
+// its edge and lands with the rolled face up. Slot 0 is on the front of the
+// coin, slot 1 on the back, so a half turn more lands tails.
+function coinFlip(roll) {
+  const face = (cls, n) => {
+    const t = label(n);
+    return `<div class="coin-face ${cls}"><div><b>${esc(t.slice(0, 1).toUpperCase())}</b>`
+      + (t.length > 1 ? `<span>${esc(t)}</span>` : '') + `</div></div>`;
+  };
+  return `<div class="res-coin flip" style="--end:${1800 + roll * 180}deg"`
+    + ` role="img" aria-label="The coin landed on ${esc(label(roll))}">`
+    + `<div class="coin-shadow"></div>`
+    + `<div class="toss"><div class="coin3d">${face('heads', 0)}${face('tails', 1)}</div></div></div>`;
 }
 
 function renderLast(r) {
@@ -592,9 +705,11 @@ function renderLast(r) {
   const won = r.payouts.some(p => p.player === accountId);
   const rows = r.payouts.map(p => `<tr><td>${tag(p.player)}</td><td>${fmtNear(p.amount)}</td></tr>`).join('');
   const cap = `Round ${r.round_id} · pot ${fmtNear(r.pot)} · ${r.payouts.length ? r.payouts.length + ' winner' + (r.payouts.length > 1 ? 's' : '') : 'no winner, pot carried over'}${won ? ' · you won!' : ''}`;
-  const g = game(); // the spinner draws its own result; the other games print the roll
+  const g = game(); // the spinner and the coin draw their result; the rest print the roll
   el.innerHTML = (g && g.kind === 'CrazySpinner' && g.outcomes === SLOTS
       ? spinnerWheel(r.roll) + `<div class="roll-cap">${cap}</div>`
+    : g && g.kind === 'CoinFlip' && g.outcomes === 2
+      ? coinFlip(r.roll) + `<div class="roll-cap">${cap}</div>`
       : `<div class="roll">${label(r.roll)}<small>${cap}</small></div>`)
     + (rows ? `<table><thead><tr><th>Winner</th><th>Payout</th></tr></thead><tbody>${rows}</tbody></table>` : '')
     + `<div class="hint mono" style="margin-top:8px">big_c ${r.big_c}</div>`;
