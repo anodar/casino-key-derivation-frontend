@@ -58,6 +58,10 @@
   .toast.err { border-color: var(--red); }
   a { color: var(--gold); }
   .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+  .tabs { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+  .tabs button { background: var(--card); border: 1px solid var(--line); color: var(--text); border-radius: 999px; padding: 8px 16px; cursor: pointer; font-weight: 600; }
+  .tabs button.active { background: var(--gold); color: #1b1b1b; border-color: var(--gold); }
+  .tabs button small { font-weight: 400; color: inherit; opacity: .75; margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -70,6 +74,7 @@
 </header>
 
 <main>
+  <div class="tabs" id="tabs"></div>
   <div class="banner" id="banner"></div>
 
   <section class="card">
@@ -89,8 +94,8 @@
   </section>
 
   <section class="card">
-    <h2>Place your bet</h2>
-    <div class="hint">Pick a number. Bets on the rolled number split the whole pot, pro rata. No winner: the pot rolls over.</div>
+    <h2>Place your bet <span class="badge" id="game-name"></span></h2>
+    <div class="hint" id="rules"></div>
     <div class="grid" id="numbers"></div>
     <div class="row">
       <label class="hint" for="amount">Amount (NEAR)</label>
@@ -108,7 +113,7 @@
   <section class="card">
     <h2>Recent rolls</h2>
     <table><thead><tr><th>Round</th><th>Roll</th><th>big_c</th></tr></thead><tbody id="rolls"></tbody></table>
-    <div class="hint" style="margin-top:8px">Each roll is <span class="mono">sha256(big_c)[..8] as u64 LE % 100</span>, where big_c is the MPC network's derived key for <span class="mono">(contract, "round-N")</span>, pairing-verified on-chain before the casino sees it.</div>
+    <div class="hint" style="margin-top:8px">Each roll is <span class="mono">sha256(big_c)[..8] as u64 LE % outcomes</span>, where big_c is the MPC network's derived key for <span class="mono">(contract, path)</span> with path <span class="mono">round-N</span> for game 0 and <span class="mono">game-G-round-N</span> otherwise, pairing-verified on-chain before the casino sees it.</div>
   </section>
 </main>
 <div class="toast" id="toast"></div>
@@ -122,6 +127,8 @@ const WALLET = 'https://testnet.mynearwallet.com';
 const EXPLORER = 'https://testnet.nearblocks.io';
 const GAS = '250000000000000';
 const POLL_MS = 3000;
+let gameId = Number(params.get('game') || 0);
+let games = [];
 
 const $ = id => document.getElementById(id);
 $('contract-id').textContent = CONTRACT;
@@ -173,15 +180,47 @@ $('connect').onclick = () => {
   else wallet.requestSignIn({ contractId: CONTRACT, methodNames: ['place_bet'] });
 };
 
+// ---- games ----
+const game = () => games.find(g => g.game_id === gameId);
+async function loadGames() {
+  games = await view('get_games');
+  if (!game()) gameId = games[0].game_id;
+  renderTabs(); buildGrid();
+}
+function renderTabs() {
+  $('tabs').innerHTML = '';
+  for (const g of games) {
+    const b = document.createElement('button');
+    b.className = g.game_id === gameId ? 'active' : '';
+    b.innerHTML = `${g.name}<small>${g.outcomes} outcomes</small>`;
+    b.onclick = () => switchGame(g.game_id);
+    $('tabs').appendChild(b);
+  }
+  $('game-name').textContent = game().name;
+  $('rules').textContent = game().rules;
+}
+function switchGame(id) {
+  gameId = id; selected = null; round = null; lastResult = null; lastSeenRound = null;
+  $('banner').classList.remove('show');
+  history.replaceState({}, '', `${location.pathname}?game=${id}${params.get('contract') ? `&contract=${CONTRACT}` : ''}`);
+  renderTabs(); buildGrid(); poll();
+}
+function buildGrid() {
+  const n = game().outcomes;
+  grid.innerHTML = '';
+  grid.style.gridTemplateColumns = `repeat(${n <= 10 ? n : 10}, 1fr)`;
+  for (let i = 0; i < n; i++) {
+    const b = document.createElement('button');
+    b.textContent = i;
+    b.onclick = () => { selected = i; [...grid.children].forEach(c => c.classList.toggle('sel', +c.textContent === i)); updateBetButton(); };
+    grid.appendChild(b);
+  }
+  updateBetButton();
+}
+
 // ---- betting ----
 let selected = null, round = null, lastSeenRound = null, lastResult = null;
 const grid = $('numbers');
-for (let n = 0; n < 100; n++) {
-  const b = document.createElement('button');
-  b.textContent = n;
-  b.onclick = () => { selected = n; [...grid.children].forEach(c => c.classList.toggle('sel', +c.textContent === n)); updateBetButton(); };
-  grid.appendChild(b);
-}
 function updateBetButton() {
   const btn = $('bet');
   btn.textContent = selected === null ? 'Bet on –' : `Bet on ${selected}`;
@@ -196,7 +235,7 @@ $('bet').onclick = async () => {
   if (round && BigInt(toYocto(amount)) < BigInt(round.min_bet)) return toast(`Minimum bet is ${fmtNear(round.min_bet)}`, true);
   try {
     await wallet.account().functionCall({ contractId: CONTRACT, methodName: 'place_bet',
-      args: { number: selected }, gas: GAS, attachedDeposit: toYocto(amount) });
+      args: { number: selected, game_id: gameId }, gas: GAS, attachedDeposit: toYocto(amount) });
   } catch (e) { toast(e.message || String(e), true); }
 };
 
@@ -243,9 +282,11 @@ function renderLast(r) {
 
 const rollCache = new Map();
 async function renderRolls(currentRound) {
+  const g = gameId, key = i => `${g}:${i}`;
   const ids = []; for (let i = currentRound - 1; i >= 0 && ids.length < 8; i--) ids.push(i);
-  await Promise.all(ids.filter(i => !rollCache.has(i)).map(async i => rollCache.set(i, await view('get_roll', { round_id: i }))));
-  $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(i);
+  await Promise.all(ids.filter(i => !rollCache.has(key(i))).map(async i => rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g }))));
+  if (g !== gameId) return;
+  $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i));
     return `<tr><td>${i}</td><td class="num">${r ? r.roll : '—'}</td><td class="mono">${r ? r.big_c : 'not recorded'}</td></tr>`; }).join('')
     || '<tr><td colspan="3" class="empty">No rolls yet.</td></tr>';
 }
@@ -268,13 +309,16 @@ function toast(msg, err = false) {
 
 // ---- polling ----
 async function poll() {
+  if (!game()) return;
+  const g = gameId;
   try {
-    const [r, last] = await Promise.all([view('get_round'), view('get_last_round')]);
+    const [r, last] = await Promise.all([view('get_round', { game_id: g }), view('get_last_round', { game_id: g })]);
+    if (g !== gameId) return;
     round = r; renderRound();
     if (last && (!lastResult || last.round_id !== lastResult.round_id)) {
       if (lastResult !== null || lastSeenRound !== null) showBanner(last);
-      lastResult = last; renderLast(last); rollCache.delete(last.round_id);
-    } else if (!last && lastResult === null) renderLast(null);
+      lastResult = last; renderLast(last); rollCache.delete(`${g}:${last.round_id}`);
+    } else if (!last) renderLast(null);
     if (lastSeenRound !== r.round_id) { lastSeenRound = r.round_id; await renderRolls(r.round_id); }
   } catch (e) { toast('RPC error: ' + e.message, true); }
 }
@@ -283,14 +327,15 @@ async function poll() {
 if (params.get('transactionHashes')) {
   const h = params.get('transactionHashes').split(',')[0];
   toast('Bet placed.'); $('last').insertAdjacentHTML('afterbegin', `<div class="hint">Your tx: <a target="_blank" href="${EXPLORER}/txns/${h}">${short(h)}</a></div>`);
-  history.replaceState({}, '', location.pathname + (params.get('contract') ? `?contract=${CONTRACT}` : ''));
+  history.replaceState({}, '', `${location.pathname}?game=${gameId}${params.get('contract') ? `&contract=${CONTRACT}` : ''}`);
 } else if (params.get('errorCode')) {
   toast('Wallet: ' + decodeURIComponent(params.get('errorMessage') || params.get('errorCode')), true);
   history.replaceState({}, '', location.pathname);
 }
 
 initWallet().catch(e => toast('Wallet init failed: ' + e.message, true));
-poll(); setInterval(poll, POLL_MS);
+loadGames().then(poll).catch(e => toast('RPC error: ' + e.message, true));
+setInterval(poll, POLL_MS);
 </script>
 </body>
 </html>
