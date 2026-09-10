@@ -4,11 +4,21 @@
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; } /* #game sets display:grid, which would beat the attribute */
-  body { margin: 0; background: radial-gradient(1200px 600px at 50% -10%, var(--felt) 0%, var(--bg) 70%); color: var(--text); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  /* A slow drift in the felt glow behind everything — enough to feel alive
+     without competing with anything actually happening on top of it. */
+  body { margin: 0; background: radial-gradient(1200px 600px at 50% -10%, var(--felt) 0%, var(--bg) 70%);
+    background-size: 100% 140%; animation: bg-breathe 14s ease-in-out infinite;
+    color: var(--text); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  @keyframes bg-breathe { 0%, 100% { background-position: 50% 0%; } 50% { background-position: 50% 14%; } }
   header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   /* min-width: 0 so the contract pill below the title can ellipsis instead of
      holding the header open — the id is long and does not wrap. */
   h1 { margin: 0; font-size: 22px; letter-spacing: .5px; min-width: 0; }
+  /* The brand name catches a slow marquee of light, like foil on a sign. */
+  h1 #title-text { background: linear-gradient(100deg, var(--text) 40%, var(--gold) 50%, var(--text) 60%);
+    background-size: 240% auto; -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: title-shine 7s linear infinite; }
+  @keyframes title-shine { to { background-position: -240% 0; } }
   h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
   .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .home-btn { flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; }
@@ -106,13 +116,21 @@
   .btn.mini { height: 32px; padding: 0 12px; font-size: 13px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   input[type=number] { background: var(--felt-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 10px; font-size: 15px; width: 130px; }
-  .btn { background: var(--gold); color: #1b1b1b; border: 0; border-radius: 10px; padding: 0 18px; height: 42px; font-weight: 700; font-size: 15px; cursor: pointer; transition: background .15s, transform .06s; }
+  .btn { position: relative; overflow: hidden; background: var(--gold); color: #1b1b1b; border: 0; border-radius: 10px; padding: 0 18px; height: 42px; font-weight: 700; font-size: 15px; cursor: pointer; transition: background .15s, transform .06s; }
   .btn:not(.ghost):hover:not(:disabled) { background: #ffd469; }
   .btn:active:not(:disabled) { transform: translateY(1px); }
   .btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
   .btn.ghost:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+  /* A sweep of light on hover, and a slow heartbeat glow while a bet is one
+     click away — the button, not a sentence, says "this is ready". */
+  .btn::after { content: ''; position: absolute; inset: 0; left: -60%; width: 40%;
+    background: linear-gradient(120deg, transparent, rgba(255, 255, 255, .55), transparent); transform: skewX(-20deg); }
+  .btn:hover:not(:disabled)::after { animation: shine-sweep .8s ease; }
+  @keyframes shine-sweep { from { left: -60%; } to { left: 130%; } }
+  .btn.pulse:not(:disabled) { animation: btn-glow 1.7s ease-in-out infinite; }
+  @keyframes btn-glow { 0%, 100% { box-shadow: 0 0 0 rgba(242, 193, 78, 0); } 50% { box-shadow: 0 0 16px rgba(242, 193, 78, .6); } }
   /* Amount: one pill holding the − / + steppers, the number and its unit, so the
      row reads as a single control sitting next to the bet button. */
   .amount { display: inline-flex; align-items: stretch; height: 42px; border: 1px solid var(--line); border-radius: 10px;
@@ -249,11 +267,17 @@
   .meta i { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
   .meta b { font-weight: 700; font-variant-numeric: tabular-nums; }
   .meta.gold { border-color: var(--gold-2); } .meta.gold b { color: var(--gold); }
-  .meta.win { border-color: var(--gold); background: rgba(242, 193, 78, .15); } .meta.win b { color: var(--gold); }
+  .meta.win { border-color: var(--gold); background: rgba(242, 193, 78, .15); animation: meta-win-glow 1.4s ease-in-out infinite; } .meta.win b { color: var(--gold); }
+  @keyframes meta-win-glow { 0%, 100% { box-shadow: 0 0 0 rgba(242, 193, 78, 0); } 50% { box-shadow: 0 0 10px rgba(242, 193, 78, .55); } }
   .meta.warn { border-color: var(--red); } .meta.warn b { color: var(--red); }
   /* The threshold, read off the bar instead of spelled out beside it. */
   .goal { display: flex; align-items: center; gap: 11px; margin: 10px 0 0; }
-  .goal .bar { position: relative; flex: 1; height: 18px; margin: 0; background: rgba(0, 0, 0, .3); }
+  .goal .bar { position: relative; flex: 1; height: 18px; margin: 0; background: rgba(0, 0, 0, .3); transition: box-shadow .3s; }
+  /* Close to the threshold, the bar itself starts to glow — the nudge that
+     says a round is about to roll before the numbers do. */
+  .goal .bar.hot { box-shadow: 0 0 16px rgba(242, 193, 78, .55); }
+  .goal .bar.hot > div { animation: bar-glow 1s ease-in-out infinite; }
+  @keyframes bar-glow { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.4); } }
   .goal .bar span { position: absolute; inset: 0; display: grid; place-items: center;
     font: 700 10px/1 system-ui, sans-serif; letter-spacing: .5px; text-shadow: 0 1px 2px rgba(0, 0, 0, .55); }
   .goal-to { flex: none; display: inline-flex; align-items: baseline; gap: 5px; font-size: 12px; }
@@ -302,8 +326,12 @@
   .spec .mono { word-break: normal; overflow-wrap: break-word; }
   @media (max-width: 520px) { .spec dl { grid-template-columns: 1fr; gap: 2px 0; } .spec dd { margin-bottom: 8px; } }
   .banner { grid-column: 1 / -1; background: linear-gradient(90deg, #2a4a1f, #1e3d2c); border: 1px solid var(--green); border-radius: 14px; padding: 13px 16px; display: none; }
-  .banner.show { display: block; }
-  .banner.win { border-color: var(--gold); background: linear-gradient(90deg, #4a3a10, #2b2a12); }
+  .banner.show { display: block; animation: banner-pop .4s cubic-bezier(.34, 1.56, .64, 1); }
+  @keyframes banner-pop { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  /* A winning round gets its own heartbeat glow on top of the pop-in — the one
+     banner state worth a second look after it lands. */
+  .banner.win { border-color: var(--gold); background: linear-gradient(90deg, #4a3a10, #2b2a12); animation: banner-pop .4s cubic-bezier(.34, 1.56, .64, 1), win-glow 1.6s ease-in-out .4s infinite; }
+  @keyframes win-glow { 0%, 100% { box-shadow: 0 0 0 rgba(242, 193, 78, 0); } 50% { box-shadow: 0 0 26px rgba(242, 193, 78, .45); } }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #223; color: #fff; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); display: none; max-width: 90vw; }
   .toast.show { display: block; }
   .toast.err { border-color: var(--red); }
@@ -371,6 +399,7 @@
   .game-card:hover .b3 { animation-delay: .16s; }
   @keyframes bob { 50% { transform: translateY(-9px); } }
   @media (prefers-reduced-motion: reduce) {
+    body, h1 #title-text { animation: none; }
     .game-card, .game-card:hover { transform: none; }
     .gc-play { transition: none; transform: none; }
     .game-card:hover .coin, .game-card:hover .wheel, .game-card:hover .ball { animation: none; }
@@ -381,4 +410,8 @@
     .res-wheel.spin .slot.win .ring { animation: none; opacity: 1; }
     .res-coin.flip .coin3d, .res-coin.flip .toss, .res-coin.flip .coin-shadow { animation: none; }
     .res-coin.flip .coin3d::after { animation: none; opacity: 1; }
+    .btn::after, .btn.pulse { animation: none; }
+    .goal .bar.hot, .goal .bar.hot > div { animation: none; box-shadow: none; filter: none; }
+    .meta.win { animation: none; }
+    .banner.show, .banner.win { animation: none; }
   }

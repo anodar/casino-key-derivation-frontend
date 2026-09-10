@@ -368,6 +368,7 @@ function updateBetButton() {
     : picks > 1 ? `Pick ${picks - selected.length} more` : 'Bet on –';
   const open = round && round.state === 'Open';
   btn.disabled = !(walletApi && accountId && ready && open && !mine);
+  btn.classList.toggle('pulse', !btn.disabled); // a heartbeat glow when a bet is one click away
   // The button says what you may do and the card above says what you already
   // hold, so this line is only ever the numbers neither of them carries.
   $('bet-hint').innerHTML = !round ? '<span class="hint">Loading round…</span>'
@@ -403,6 +404,7 @@ function renderRound() {
   const pct = Math.min(100, Number(BigInt(round.total_bets) * 100n / BigInt(round.threshold)));
   $('bar').style.width = pct + '%';
   $('pct').textContent = pct + '%';
+  $('bar').parentElement.classList.toggle('hot', pct >= 80 && round.state === 'Open'); // the roll is close
   $('goal').textContent = fmtNear(round.threshold);
   if (snapshot) $('cut').innerHTML = meta('house cut', snapshot.cut_bps / 100 + '%')
     + meta('collected', fmtNear(snapshot.house_gains));
@@ -710,6 +712,7 @@ async function renderRolls(currentRound) {
 
 function showBanner(r) {
   const won = r.payouts.find(p => p.player === accountId);
+  if (won) celebrate();
   const b = $('banner');
   b.className = 'banner show' + (won ? ' win' : '');
   b.innerHTML = `<div class="metas">` + meta('round', '#' + r.round_id)
@@ -720,6 +723,42 @@ function showBanner(r) {
           : meta('nobody hit it', fmtNear(r.pot) + ' carries')))
     + `</div>`;
   setTimeout(() => b.classList.remove('show'), 15000);
+}
+
+// ---- celebration: confetti falling for a win ----
+// A canvas overlay rather than a DOM shower: a few hundred divs each animating
+// their own fall is the kind of thing that jitters on a cheap laptop, one
+// canvas repainting every frame is not.
+function celebrate() {
+  if (reducedMotion()) return;
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:9999';
+  canvas.width = innerWidth; canvas.height = innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  const COLORS = ['#f2c14e', '#d4a72c', '#3ccf7a', '#e05a5a', '#7a4fb6', '#fff2c4'];
+  const pieces = Array.from({ length: 160 }, () => ({
+    x: Math.random() * canvas.width, y: -20 - Math.random() * canvas.height * .5,
+    w: 6 + Math.random() * 6, h: 8 + Math.random() * 10,
+    vx: -2.4 + Math.random() * 4.8, vy: 2 + Math.random() * 3,
+    rot: Math.random() * Math.PI * 2, vr: -0.22 + Math.random() * 0.44,
+    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+  }));
+  const start = performance.now(), DURATION = 3800;
+  (function frame(t) {
+    const elapsed = t - start;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const p of pieces) {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.045; p.rot += p.vr;
+      ctx.save();
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.globalAlpha = Math.max(0, 1 - elapsed / DURATION);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
+    if (elapsed < DURATION) requestAnimationFrame(frame); else canvas.remove();
+  })(start);
 }
 
 let toastTimer;
