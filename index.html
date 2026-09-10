@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Casino Key Derivation</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@near-wallet-selector/modal-ui-js@10.1.4/styles.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@near-wallet-selector/modal-ui-js@8.10.2/styles.css">
 <style>
   :root {
     --bg: #2b1a45; --felt: #4b2a7a; --felt-2: #3b2262; --card: #35244f; --line: #62488a;
@@ -390,10 +390,12 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
   window.JS_SHA256_NO_NODE_JS = true; window.JS_SHA256_NO_COMMON_JS = true;
 </script>
 <script type="module">
-import { setupWalletSelector } from 'https://esm.sh/@near-wallet-selector/core@10.1.4';
-import { setupModal } from 'https://esm.sh/@near-wallet-selector/modal-ui-js@10.1.4';
-import { setupMyNearWallet } from 'https://esm.sh/@near-wallet-selector/my-near-wallet@10.1.4';
-import { setupMeteorWallet } from 'https://esm.sh/@near-wallet-selector/meteor-wallet@10.1.4';
+// Pinned to the 8.x line: from 9.x the MyNearWallet module opens the wallet in a popup
+// and waits for it, which strands users whose popup is hidden or errors; 8.x redirects.
+import { setupWalletSelector } from 'https://esm.sh/@near-wallet-selector/core@8.10.2';
+import { setupModal } from 'https://esm.sh/@near-wallet-selector/modal-ui-js@8.10.2';
+import { setupMyNearWallet } from 'https://esm.sh/@near-wallet-selector/my-near-wallet@8.10.2';
+import { setupMeteorWallet } from 'https://esm.sh/@near-wallet-selector/meteor-wallet@8.10.2';
 
 try {
   const selector = await setupWalletSelector({
