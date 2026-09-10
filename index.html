@@ -27,6 +27,7 @@
   .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); text-transform: none; letter-spacing: 0; }
   .badge.Open { color: var(--green); border-color: var(--green); }
   .badge.Rolling { color: var(--gold); border-color: var(--gold); animation: pulse 1s infinite; }
+  .badge.Drawing { color: var(--green); border-color: var(--green); animation: pulse 1.6s infinite; }
   .badge.Paying { color: var(--gold); border-color: var(--gold); }
   @keyframes pulse { 50% { opacity: .4; } }
   .badge.offline { opacity: .5; text-decoration: line-through; }
@@ -51,7 +52,21 @@
   .grid button.sel { background: var(--gold); color: #1b1b1b; border-color: var(--gold); }
   .grid button.taken::after { content: attr(data-n); position: absolute; top: -5px; right: -5px; background: var(--red); color: #fff; font-size: 10px; line-height: 16px; min-width: 16px; border-radius: 999px; padding: 0 4px; }
   .grid button.mine { box-shadow: inset 0 0 0 2px var(--green); }
+  /* Already out of the drum. A pip, not a fill: the fill means "picked", and a
+     drawn number that is also on your card has to show both. */
+  .grid button.out { color: var(--gold); border-color: var(--gold-2); }
+  .grid button.out::before { content: ''; position: absolute; top: 4px; left: 4px; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--gold); box-shadow: 0 0 6px var(--gold); }
+  .grid button.sel.out { color: #1b1b1b; }
+  .grid button.sel.out::before { background: #1b1b1b; box-shadow: none; }
   .grid.big button { aspect-ratio: 2 / 1; font-size: 22px; }
+  /* The numbers already drawn, in the order they came out. */
+  .drum { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+  .drum span { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+    background: radial-gradient(circle at 34% 26%, #fff2c4, #f2c14e 58%, #b8890f); color: #5c4306;
+    font: 800 13px/1 system-ui, sans-serif; }
+  .drum span.last { box-shadow: 0 0 0 2px var(--green), 0 0 12px rgba(60, 207, 122, .5); }
+  .drum.big span { width: 38px; height: 38px; font-size: 15px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   input[type=number] { background: var(--felt-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 10px; font-size: 15px; width: 130px; }
   .btn { background: var(--gold); color: #1b1b1b; border: 0; border-radius: 10px; padding: 0 18px; height: 42px; font-weight: 700; font-size: 15px; cursor: pointer; transition: background .15s, transform .06s; }
@@ -274,8 +289,13 @@
     <div class="bar"><div id="bar"></div></div>
     <div class="hint" id="progress"></div>
     <div class="hint" id="cut"></div>
+    <div id="drum-wrap" hidden style="margin-top:12px">
+      <div class="hint" id="draw-hint"></div>
+      <div class="drum" id="drum"></div>
+      <button class="btn" id="draw" style="margin-top:8px" disabled>Draw the next number</button>
+    </div>
     <table id="bets-table" style="margin-top:12px">
-      <thead><tr><th>Player</th><th>Number</th><th>Bet</th></tr></thead>
+      <thead><tr><th>Player</th><th id="bets-col">Number</th><th>Bet</th></tr></thead>
       <tbody id="bets"></tbody>
     </table>
     <div class="empty" id="no-bets">No bets yet. Be the first.</div>
@@ -304,9 +324,9 @@
   </section>
 
   <section class="card">
-    <h2>Recent rolls</h2>
-    <table><thead><tr><th>Round</th><th>Roll</th><th>big_c</th></tr></thead><tbody id="rolls"></tbody></table>
-    <div class="hint" style="margin-top:8px">Each roll is <span class="mono">sha256(input) as a big-endian u256 % outcomes</span> (coin flip: 0 = Heads, 1 = Tails), where <span class="mono">input</span> is the compact JSON of the round's public data (game, round, limits, pot, every bet) plus <span class="mono">big_c</span>, the MPC network's derived key for <span class="mono">(contract, path)</span> with path <span class="mono">round-N</span> for game 0 and <span class="mono">game-G-round-N</span> otherwise, pairing-verified on-chain before the casino sees it. The check mark means this page recomputed the roll from <span class="mono">get_roll_input</span>.</div>
+    <h2>Recent draws</h2>
+    <table><thead><tr><th>Round</th><th>Numbers drawn</th><th>last big_c</th></tr></thead><tbody id="rolls"></tbody></table>
+    <div class="hint" style="margin-top:8px">Every draw is one <span class="mono">sha256(preimage) as a big-endian u256</span>, reduced over the numbers still in the drum — so a repeat is reconsidered rather than drawn twice. The <span class="mono">preimage</span> is the compact JSON of <span class="mono">{input, draw, drawn, big_c}</span>: the round's public data (game, round, limits, pot, every bet) from <span class="mono">get_roll_input</span>, the index of this draw, the numbers already out, and <span class="mono">big_c</span>, the MPC network's derived key for <span class="mono">(contract, path)</span> — path <span class="mono">round-N</span> for game 0 and <span class="mono">game-G-round-N</span> otherwise, plus <span class="mono">-draw-D</span> from the second draw on — pairing-verified on-chain before the casino sees it. Single-outcome games settle on the first draw; bingo keeps drawing until a card is full. The check mark means this page recomputed every number of the round.</div>
   </section>
 </main>
 <div class="toast" id="toast"></div>
@@ -465,7 +485,7 @@ const ART = {
       <text x="100" y="55" text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="30" font-weight="800" fill="#7a5a0d">N</text>
     </g></svg>`,
   CrazySpinner: wheelArt,
-  PickNumber: `<svg class="art" viewBox="0 0 200 120" aria-hidden="true">
+  Bingo: `<svg class="art" viewBox="0 0 200 120" aria-hidden="true">
     ${ball(58, 78, 21, '#8f7ec4', '#2a1748', 7, 'b1')}
     ${ball(142, 78, 21, '#e05a5a', '#4a1414', 99, 'b3')}
     ${ball(100, 50, 26, '#f2c14e', '#5c4306', 42, 'b2')}</svg>`,
@@ -479,13 +499,13 @@ const game = () => games.find(g => g.game_id === gameId);
 const inLobby = () => gameId === null;
 
 function setGames(list) {
-  const key = l => JSON.stringify(l.map(g => [g.game_id, g.round_id, g.state, g.min_bet, g.threshold]));
+  const key = l => JSON.stringify(l.map(g => [g.game_id, g.round_id, g.state, g.min_bet, g.threshold, g.outcomes, g.picks]));
   const changed = key(list) !== key(games);
   games = list;
   if (!inLobby() && !game()) gameId = null; // ?game= points at a game this contract does not have
   if (inLobby()) { if (changed) renderLobby(); return; }
   renderGameHeader();
-  if (!grid.children.length || +grid.dataset.game !== gameId) buildGrid();
+  if (grid.dataset.shape !== gridShape()) buildGrid();
 }
 
 function renderLobby() {
@@ -494,7 +514,7 @@ function renderLobby() {
     <button class="game-card" data-game="${g.game_id}">
       <div class="art-wrap">${ART[g.kind] || ART._}</div>
       <div class="gc-body">
-        <div class="gc-top"><h3>${esc(g.name)}</h3><span class="chip">${g.outcomes} outcomes</span>${g.default ? '<span class="chip feat">Featured</span>' : ''}</div>
+        <div class="gc-top"><h3>${esc(g.name)}</h3><span class="chip">${g.picks > 1 ? `pick ${g.picks} of ${g.outcomes}` : `${g.outcomes} outcomes`}</span>${g.default ? '<span class="chip feat">Featured</span>' : ''}</div>
         <p class="gc-rules">${esc(g.rules)}</p>
         <dl class="gc-meta">
           <div><dt>Round</dt><dd>#${g.round_id}</dd></div>
@@ -544,7 +564,7 @@ function setUrl(id, push) {
 // Enter a game (or the lobby, with id null) and reset everything round-scoped.
 function go(id, push = true) {
   if (push && id === gameId) return;
-  gameId = id; selected = null; round = null; lastResult = null; lastSeenRound = null;
+  gameId = id; selected = []; round = null; lastResult = null; lastSeenRound = null;
   $('banner').classList.remove('show');
   $('bets').innerHTML = ''; $('rolls').innerHTML = '';
   if (push) setUrl(id, true);
@@ -558,32 +578,52 @@ addEventListener('popstate', () => {
   go(p.has('game') ? Number(p.get('game')) : null, false);
 });
 
+const gridShape = () => { const g = game(); return g ? `${g.game_id}:${g.outcomes}:${g.picks}` : ''; };
+
 function buildGrid() {
-  const n = game().outcomes;
-  grid.innerHTML = ''; grid.dataset.game = gameId;
-  grid.style.gridTemplateColumns = `repeat(${n <= 10 ? n : 10}, 1fr)`;
+  const g = game(), n = g.outcomes;
+  grid.innerHTML = ''; grid.dataset.shape = gridShape();
+  // A card is a square board; a single-outcome game is one row, wrapped at ten.
+  const cols = g.picks > 1 ? Math.round(Math.sqrt(n)) : Math.min(n, 10);
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   grid.classList.toggle('big', n <= 2);
   for (let i = 0; i < n; i++) {
     const b = document.createElement('button');
     b.textContent = label(i); b.dataset.i = i;
-    b.onclick = () => { selected = i; [...grid.children].forEach(c => c.classList.toggle('sel', +c.dataset.i === i)); updateBetButton(); };
+    b.onclick = () => pick(i);
     grid.appendChild(b);
   }
+  // Rebuilding the board loses the classes but not the picks.
+  [...grid.children].forEach(c => c.classList.toggle('sel', selected.includes(+c.dataset.i)));
+  updateBetButton();
+}
+
+// One number for a single-outcome game, `picks` of them for a bingo card;
+// clicking a chosen number takes it off again.
+function pick(i) {
+  const picks = game().picks;
+  if (selected.includes(i)) selected = selected.filter(n => n !== i);
+  else if (picks === 1) selected = [i];
+  else if (selected.length < picks) selected = [...selected, i];
+  else return toast(`A card holds ${picks} numbers — take one off first.`, true);
+  [...grid.children].forEach(c => c.classList.toggle('sel', selected.includes(+c.dataset.i)));
   updateBetButton();
 }
 
 // ---- betting ----
-let selected = null, round = null, lastSeenRound = null, lastResult = null, snapshot = null;
+let selected = [], round = null, lastSeenRound = null, lastResult = null, snapshot = null;
 const grid = $('numbers');
 function updateBetButton() {
-  const btn = $('bet');
-  btn.textContent = selected === null ? 'Bet on –' : `Bet on ${label(selected)}`;
+  const btn = $('bet'), picks = game() ? game().picks : 1, ready = selected.length === picks;
+  btn.textContent = ready ? `Bet on ${selected.map(label).join(' ')}`
+    : picks > 1 ? `Pick ${picks - selected.length} more` : 'Bet on –';
   const open = round && round.state === 'Open';
-  btn.disabled = !(walletApi && accountId && selected !== null && open);
+  btn.disabled = !(walletApi && accountId && ready && open);
   $('bet-hint').textContent = !round ? 'Loading round…'
     : !accountId ? 'Connect a testnet wallet to bet.'
-    : !open ? 'Round is settling, bets reopen in a moment.'
-    : `Minimum bet ${fmtNear(round.min_bet)}. You will be redirected to the wallet to approve.`;
+    : !open ? (round.state === 'Drawing' ? 'The drum is still turning; bets reopen once the round settles.'
+      : 'Round is settling, bets reopen in a moment.')
+    : `${picks > 1 ? `Pick ${picks} numbers. ` : ''}Minimum bet ${fmtNear(round.min_bet)}. You will be redirected to the wallet to approve.`;
 }
 $('bet').onclick = async () => {
   const amount = $('amount').value;
@@ -593,6 +633,14 @@ $('bet').onclick = async () => {
     // popup wallets (Meteor) resolve in place.
     const outcome = await walletApi.bet(selected, gameId, toYocto(amount));
     if (outcome) { toast('Bet placed.'); showBalance(); poll(); }
+  } catch (e) { toast(e.message || String(e), true); }
+};
+// Turning the drum is permissionless: the number comes from the MPC key for a
+// path nobody chooses, so anyone may pay the gas for the next one.
+$('draw').onclick = async () => {
+  try {
+    const outcome = await walletApi.draw(gameId);
+    if (outcome) { toast('Asked for the next number.'); poll(); }
   } catch (e) { toast(e.message || String(e), true); }
 };
 
@@ -607,10 +655,12 @@ function renderRound() {
   $('bar').style.width = pct + '%';
   $('progress').textContent = `${fmtNear(round.total_bets)} of ${fmtNear(round.threshold)} needed to roll (${pct}%)`;
   if (snapshot) $('cut').textContent = `Casino keeps ${snapshot.cut_bps / 100}% of each winner's profit · ${fmtNear(snapshot.house_gains)} so far`;
+  const picks = game() ? game().picks : 1;
+  $('bets-col').textContent = picks > 1 ? 'Card' : 'Number';
   const tb = $('bets'); tb.innerHTML = '';
   for (const b of round.bets) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${tag(b.player)}</td><td class="num">${label(b.number)}</td><td>${fmtNear(b.amount)}</td>`;
+    tr.innerHTML = `<td>${tag(b.player)}</td><td class="num">${b.numbers.map(label).join(' ')}</td><td>${fmtNear(b.amount)}</td>`;
     tb.appendChild(tr);
   }
   $('bets-table').style.display = round.bets.length ? '' : 'none';
@@ -619,12 +669,33 @@ function renderRound() {
   $('amount').min = minNear; $('amount').step = minNear || 0.1; // the ± buttons move one minimum bet at a time
   if (!$('amount').dataset.touched) $('amount').value = minNear;
   const counts = {}, mine = new Set();
-  for (const b of round.bets) { counts[b.number] = (counts[b.number] || 0) + 1; if (b.player === accountId) mine.add(b.number); }
+  for (const b of round.bets) for (const n of b.numbers) {
+    counts[n] = (counts[n] || 0) + 1;
+    if (b.player === accountId) mine.add(n);
+  }
+  const out = new Set(round.drawn);
   [...grid.children].forEach((c, n) => {
     c.classList.toggle('taken', !!counts[n]); c.dataset.n = counts[n] || '';
     c.classList.toggle('mine', mine.has(n));
+    c.classList.toggle('out', out.has(n));
   });
+  renderDrum();
   updateBetButton();
+}
+
+// A round that draws more than once parks in Drawing between numbers: show
+// what is out and let anyone ask for the next one.
+function renderDrum() {
+  const mid = round.drawn.length > 0 || round.state === 'Drawing';
+  $('drum-wrap').hidden = !mid;
+  if (!mid) return;
+  $('drum').innerHTML = round.drawn.map((n, i) =>
+    `<span class="${i === round.drawn.length - 1 ? 'last' : ''}">${esc(label(n))}</span>`).join('');
+  const waiting = round.state === 'Drawing';
+  $('draw').disabled = !(walletApi && accountId && waiting);
+  $('draw-hint').textContent = `${round.drawn.length} of ${game() ? game().outcomes : '?'} out of the drum · `
+    + (waiting ? (accountId ? 'anyone can ask for the next number' : 'connect a wallet to turn the drum')
+      : 'the MPC network is deriving the next key…');
 }
 $('amount').oninput = () => { $('amount').dataset.touched = '1'; };
 // The ± buttons stand in for the native spinners: same steps, but visible and
@@ -695,38 +766,57 @@ function coinFlip(roll) {
     + `<div class="toss"><div class="coin3d">${face('heads', 0)}${face('tails', 1)}</div></div></div>`;
 }
 
+// Bingo's result: the numbers in the order they came out, the one that filled
+// a card ringed.
+function bingoDrum(draws) {
+  return `<div class="drum big">` + draws.map((n, i) =>
+    `<span class="${i === draws.length - 1 ? 'last' : ''}">${esc(label(n))}</span>`).join('') + `</div>`;
+}
+
 function renderLast(r) {
   const el = $('last');
   if (!r) { el.innerHTML = '<div class="empty">No round settled yet.</div>'; return; }
-  if (r.roll === null) {
+  if (r.refunded) {
     el.innerHTML = `<div class="roll">—<small>Round ${r.round_id}: the MPC request timed out, all ${fmtNear(r.pot)} refunded</small></div>`;
     return;
   }
   const won = r.payouts.some(p => p.player === accountId);
   const rows = r.payouts.map(p => `<tr><td>${tag(p.player)}</td><td>${fmtNear(p.amount)}</td></tr>`).join('');
   const cap = `Round ${r.round_id} · pot ${fmtNear(r.pot)} · ${r.payouts.length ? r.payouts.length + ' winner' + (r.payouts.length > 1 ? 's' : '') : 'no winner, pot carried over'}${won ? ' · you won!' : ''}`;
-  const g = game(); // the spinner and the coin draw their result; the rest print the roll
-  el.innerHTML = (g && g.kind === 'CrazySpinner' && g.outcomes === SLOTS
-      ? spinnerWheel(r.roll) + `<div class="roll-cap">${cap}</div>`
+  const g = game(); // bingo, the spinner and the coin draw their result; the rest print it
+  const roll = r.draws[0];
+  el.innerHTML = (g && g.picks > 1
+      ? bingoDrum(r.draws) + `<div class="roll-cap">${cap} · ${r.draws.length} draws</div>`
+    : g && g.kind === 'CrazySpinner' && g.outcomes === SLOTS
+      ? spinnerWheel(roll) + `<div class="roll-cap">${cap}</div>`
     : g && g.kind === 'CoinFlip' && g.outcomes === 2
-      ? coinFlip(r.roll) + `<div class="roll-cap">${cap}</div>`
-      : `<div class="roll">${label(r.roll)}<small>${cap}</small></div>`)
+      ? coinFlip(roll) + `<div class="roll-cap">${cap}</div>`
+      : `<div class="roll">${label(roll)}<small>${cap}</small></div>`)
     + (rows ? `<table><thead><tr><th>Winner</th><th>Payout</th></tr></thead><tbody>${rows}</tbody></table>` : '')
-    + `<div class="hint mono" style="margin-top:8px">big_c ${r.big_c}</div>`;
+    + `<div class="hint mono" style="margin-top:8px">big_c ${r.big_cs[r.big_cs.length - 1]}</div>`;
 }
 
-// Recompute a roll from the contract's stored preimage, in the browser.
+// Recompute every number a round drew, from the contract's stored preimages.
+// The key order of the JSON is what the contract hashes, so `input` goes in as
+// it came off the RPC and the three per-draw fields follow it.
 const verified = new Map();
 async function verifyRoll(g, i, record) {
   const key = `${g}:${i}`;
   if (verified.has(key)) return verified.get(key);
   try {
     const input = await view('get_roll_input', { round_id: i, game_id: g });
-    if (!input) return null;
-    const bytes = new TextEncoder().encode(JSON.stringify(input));
-    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-    let r = 0n; for (const b of hash) r = (r << 8n) | BigInt(b);
-    const ok = Number(r % BigInt(input.outcomes)) === record.roll && input.big_c === record.big_c;
+    if (!input || !record.draws.length || record.draws.length !== record.big_cs.length) return null;
+    const drawn = [];
+    let ok = true;
+    for (let d = 0; ok && d < record.draws.length; d++) {
+      const preimage = JSON.stringify({ input, draw: d, drawn: [...drawn], big_c: record.big_cs[d] });
+      const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(preimage)));
+      let r = 0n; for (const b of hash) r = (r << 8n) | BigInt(b);
+      const left = [];
+      for (let n = 0; n < input.outcomes; n++) if (!drawn.includes(n)) left.push(n);
+      ok = left[Number(r % BigInt(left.length))] === record.draws[d];
+      drawn.push(record.draws[d]);
+    }
     verified.set(key, ok);
     return ok;
   } catch (e) { return null; }
@@ -738,13 +828,13 @@ async function renderRolls(currentRound) {
   const ids = []; for (let i = currentRound - 1; i >= 0 && ids.length < 8; i--) ids.push(i);
   for (const i of ids.filter(i => !rollCache.has(key(i)))) rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g })); // sequential: bursts get rate-limited
   if (g !== gameId) return;
-  $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i));
-    return `<tr><td>${i}</td><td class="num">${r ? label(r.roll) : '—'}<span class="verify" id="v-${g}-${i}"></span></td><td class="mono">${r ? r.big_c : 'not recorded'}</td></tr>`; }).join('')
-    || '<tr><td colspan="3" class="empty">No rolls yet.</td></tr>';
+  $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i)); const drew = r && r.draws.length;
+    return `<tr><td>${i}</td><td class="num">${drew ? r.draws.map(label).join(' ') : '—'}<span class="verify" id="v-${g}-${i}"></span></td><td class="mono">${drew ? r.big_cs[r.big_cs.length - 1] : 'not recorded'}</td></tr>`; }).join('')
+    || '<tr><td colspan="3" class="empty">No draws yet.</td></tr>';
   for (const i of ids) {
     const r = rollCache.get(key(i)); if (!r) continue;
     verifyRoll(g, i, r).then(ok => { const el = document.getElementById(`v-${g}-${i}`); if (!el || ok === null) return;
-      el.textContent = ok ? ' ✓' : ' ✗'; el.title = ok ? 'Roll recomputed from get_roll_input in this browser' : 'Recomputed roll does not match!'; el.className = 'verify ' + (ok ? 'ok' : 'bad'); });
+      el.textContent = ok ? ' ✓' : ' ✗'; el.title = ok ? 'Every draw recomputed from get_roll_input in this browser' : 'A recomputed draw does not match!'; el.className = 'verify ' + (ok ? 'ok' : 'bad'); });
   }
 }
 
@@ -752,9 +842,12 @@ function showBanner(r) {
   const won = r.payouts.find(p => p.player === accountId);
   const b = $('banner');
   b.className = 'banner show' + (won ? ' win' : '');
-  b.innerHTML = won ? `<b>Round ${r.round_id} rolled ${label(r.roll)}. You won ${fmtNear(won.amount)}!</b>`
-    : r.roll === null ? `<b>Round ${r.round_id} timed out; bets were refunded.</b>`
-    : `<b>Round ${r.round_id} rolled ${label(r.roll)}.</b> ${r.payouts.length ? r.payouts.length + ' winner(s) took ' + fmtNear(r.pot) : 'Nobody hit it, ' + fmtNear(r.pot) + ' carries over.'}`;
+  const what = r.draws.length > 1
+    ? `drew ${r.draws.length} numbers, ${label(r.draws[r.draws.length - 1])} last`
+    : `rolled ${label(r.draws[0])}`;
+  b.innerHTML = r.refunded ? `<b>Round ${r.round_id} timed out; bets were refunded.</b>`
+    : won ? `<b>Round ${r.round_id} ${what}. You won ${fmtNear(won.amount)}!</b>`
+    : `<b>Round ${r.round_id} ${what}.</b> ${r.payouts.length ? r.payouts.length + ' winner(s) took ' + fmtNear(r.pot) : 'Nobody hit it, ' + fmtNear(r.pot) + ' carries over.'}`;
   setTimeout(() => b.classList.remove('show'), 15000);
 }
 
@@ -829,14 +922,20 @@ try {
       explorerUrl: EXPLORER, indexerUrl: 'https://testnet-api.kitwallet.app' },
     modules: [setupMyNearWallet(), setupMeteorWallet()],
   });
-  const modal = setupModal(selector, { contractId: CONTRACT, methodNames: ['place_bet'] });
+  // `draw` is in the list so the wallet's function-call key can turn the drum
+  // without a redirect; `place_bet` still needs approval for its deposit.
+  const modal = setupModal(selector, { contractId: CONTRACT, methodNames: ['place_bet', 'draw'] });
   const sync = state => setAccount((state.accounts.find(a => a.active) || {}).accountId || null);
   walletApi = {
     show: async () => modal.show(),
     signOut: async () => (await selector.wallet()).signOut(),
-    bet: async (number, game_id, deposit) => (await selector.wallet()).signAndSendTransaction({
+    bet: async (numbers, game_id, deposit) => (await selector.wallet()).signAndSendTransaction({
       receiverId: CONTRACT,
-      actions: [{ type: 'FunctionCall', params: { methodName: 'place_bet', args: { number, game_id }, gas: GAS, deposit } }],
+      actions: [{ type: 'FunctionCall', params: { methodName: 'place_bet', args: { numbers, game_id }, gas: GAS, deposit } }],
+    }),
+    draw: async (game_id) => (await selector.wallet()).signAndSendTransaction({
+      receiverId: CONTRACT,
+      actions: [{ type: 'FunctionCall', params: { methodName: 'draw', args: { game_id }, gas: GAS, deposit: '0' } }],
     }),
   };
   sync(selector.store.getState());
