@@ -24,6 +24,7 @@
   .badge.Rolling { color: var(--gold); border-color: var(--gold); animation: pulse 1s infinite; }
   .badge.Paying { color: var(--gold); border-color: var(--gold); }
   @keyframes pulse { 50% { opacity: .4; } }
+  .badge.offline { opacity: .5; text-decoration: line-through; }
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
   .stat { background: var(--felt-2); border-radius: 10px; padding: 10px 12px; }
   .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
@@ -43,6 +44,7 @@
   .grid button.sel { background: var(--gold); color: #1b1b1b; border-color: var(--gold); }
   .grid button.taken::after { content: attr(data-n); position: absolute; top: -5px; right: -5px; background: var(--red); color: #fff; font-size: 10px; line-height: 16px; min-width: 16px; border-radius: 999px; padding: 0 4px; }
   .grid button.mine { box-shadow: inset 0 0 0 2px var(--green); }
+  .grid.big button { aspect-ratio: 2 / 1; font-size: 22px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   input[type=number] { background: var(--felt-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 10px; font-size: 15px; width: 130px; }
   .btn { background: var(--gold); color: #1b1b1b; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 700; font-size: 15px; cursor: pointer; }
@@ -113,7 +115,7 @@
   <section class="card">
     <h2>Recent rolls</h2>
     <table><thead><tr><th>Round</th><th>Roll</th><th>big_c</th></tr></thead><tbody id="rolls"></tbody></table>
-    <div class="hint" style="margin-top:8px">Each roll is <span class="mono">sha256(big_c)[..8] as u64 LE % outcomes</span>, where big_c is the MPC network's derived key for <span class="mono">(contract, path)</span> with path <span class="mono">round-N</span> for game 0 and <span class="mono">game-G-round-N</span> otherwise, pairing-verified on-chain before the casino sees it.</div>
+    <div class="hint" style="margin-top:8px">Each roll is <span class="mono">sha256(big_c)[..8] as u64 LE % outcomes</span> (coin flip: 0 = Heads, 1 = Tails), where big_c is the MPC network's derived key for <span class="mono">(contract, path)</span> with path <span class="mono">round-N</span> for game 0 and <span class="mono">game-G-round-N</span> otherwise, pairing-verified on-chain before the casino sees it.</div>
   </section>
 </main>
 <div class="toast" id="toast"></div>
@@ -122,12 +124,19 @@
 <script>
 const params = new URLSearchParams(location.search);
 const CONTRACT = params.get('contract') || 'casino_key_derivation.testnet';
-const RPC = params.get('rpc') || 'https://rpc.testnet.fastnear.com';
+// Public testnet RPCs rate-limit browsers; rotate on failure.
+const RPCS = params.get('rpc') ? [params.get('rpc')] : [
+  'https://rpc.testnet.fastnear.com',
+  'https://test.rpc.fastnear.com',
+  'https://archival-rpc.testnet.fastnear.com',
+];
+let rpcIndex = 0;
+const RPC = RPCS[0];
 const WALLET = 'https://testnet.mynearwallet.com';
 const EXPLORER = 'https://testnet.nearblocks.io';
 const GAS = '250000000000000';
-const POLL_MS = 3000;
-let gameId = Number(params.get('game') || 0);
+const POLL_MS = 5000;
+let gameId = params.has('game') ? Number(params.get('game')) : null;
 let games = [];
 
 const $ = id => document.getElementById(id);
@@ -146,17 +155,31 @@ function toYocto(near) {
   return (BigInt(w || 0) * YOCTO + BigInt((f + '0'.repeat(24)).slice(0, 24))).toString();
 }
 const short = s => s.length > 28 ? s.slice(0, 14) + '…' + s.slice(-10) : s;
+const label = n => { const g = game(); return g && g.labels ? g.labels[n] : String(n); };
 
 // ---- RPC views ----
 async function view(method, args = {}) {
-  const res = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: '1', method: 'query', params: {
-      request_type: 'call_function', finality: 'final', account_id: CONTRACT, method_name: method,
-      args_base64: btoa(JSON.stringify(args)) } }) });
-  const json = await res.json();
-  if (json.error) throw new Error(JSON.stringify(json.error));
-  if (json.result.error) throw new Error(json.result.error);
-  return JSON.parse(new TextDecoder().decode(new Uint8Array(json.result.result)));
+  const body = JSON.stringify({ jsonrpc: '2.0', id: '1', method: 'query', params: {
+    request_type: 'call_function', finality: 'final', account_id: CONTRACT, method_name: method,
+    args_base64: btoa(JSON.stringify(args)) } });
+  let lastErr;
+  for (let attempt = 0; attempt < RPCS.length * 2; attempt++) {
+    const url = RPCS[rpcIndex];
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.error) throw new Error(JSON.stringify(json.error));
+      if (json.result.error) throw new Error(json.result.error); // contract panic: do not rotate
+      return JSON.parse(new TextDecoder().decode(new Uint8Array(json.result.result)));
+    } catch (e) {
+      lastErr = e;
+      if (e.message.startsWith('wasm execution failed') || e.message.includes('panicked')) throw e;
+      rpcIndex = (rpcIndex + 1) % RPCS.length;
+      await new Promise(r => setTimeout(r, 150 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 // ---- wallet ----
@@ -166,7 +189,8 @@ async function initWallet() {
   const near = await nearApi.connect({ networkId: 'testnet', nodeUrl: RPC, walletUrl: WALLET,
     helperUrl: 'https://helper.testnet.near.org', keyStore: new nearApi.keyStores.BrowserLocalStorageKeyStore() });
   wallet = new nearApi.WalletConnection(near, 'casino');
-  accountId = wallet.isSignedIn() ? wallet.getAccountId() : null;
+  // Sign-in completes asynchronously after the wallet redirect; the sync check is false then.
+  accountId = (await wallet.isSignedInAsync()) ? wallet.getAccountId() : null;
   renderWallet();
 }
 function renderWallet() {
@@ -184,7 +208,7 @@ $('connect').onclick = () => {
 const game = () => games.find(g => g.game_id === gameId);
 async function loadGames() {
   games = await view('get_games');
-  if (!game()) gameId = games[0].game_id;
+  if (!game()) gameId = (games.find(g => g.default) || games[0]).game_id;
   renderTabs(); buildGrid();
 }
 function renderTabs() {
@@ -209,10 +233,11 @@ function buildGrid() {
   const n = game().outcomes;
   grid.innerHTML = '';
   grid.style.gridTemplateColumns = `repeat(${n <= 10 ? n : 10}, 1fr)`;
+  grid.classList.toggle('big', n <= 2);
   for (let i = 0; i < n; i++) {
     const b = document.createElement('button');
-    b.textContent = i;
-    b.onclick = () => { selected = i; [...grid.children].forEach(c => c.classList.toggle('sel', +c.textContent === i)); updateBetButton(); };
+    b.textContent = label(i); b.dataset.i = i;
+    b.onclick = () => { selected = i; [...grid.children].forEach(c => c.classList.toggle('sel', +c.dataset.i === i)); updateBetButton(); };
     grid.appendChild(b);
   }
   updateBetButton();
@@ -223,12 +248,13 @@ let selected = null, round = null, lastSeenRound = null, lastResult = null;
 const grid = $('numbers');
 function updateBetButton() {
   const btn = $('bet');
-  btn.textContent = selected === null ? 'Bet on –' : `Bet on ${selected}`;
+  btn.textContent = selected === null ? 'Bet on –' : `Bet on ${label(selected)}`;
   const open = round && round.state === 'Open';
   btn.disabled = !(wallet && accountId && selected !== null && open);
-  $('bet-hint').textContent = !accountId ? 'Connect a testnet wallet to bet.'
+  $('bet-hint').textContent = !round ? 'Loading round…'
+    : !accountId ? 'Connect a testnet wallet to bet.'
     : !open ? 'Round is settling, bets reopen in a moment.'
-    : round ? `Minimum bet ${fmtNear(round.min_bet)}. You will be redirected to the wallet to approve.` : '';
+    : `Minimum bet ${fmtNear(round.min_bet)}. You will be redirected to the wallet to approve.`;
 }
 $('bet').onclick = async () => {
   const amount = $('amount').value;
@@ -252,7 +278,7 @@ function renderRound() {
   const tb = $('bets'); tb.innerHTML = '';
   for (const b of round.bets) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${b.player === accountId ? '<b>you</b>' : short(b.player)}</td><td class="num">${b.number}</td><td>${fmtNear(b.amount)}</td>`;
+    tr.innerHTML = `<td>${b.player === accountId ? '<b>you</b>' : short(b.player)}</td><td class="num">${label(b.number)}</td><td>${fmtNear(b.amount)}</td>`;
     tb.appendChild(tr);
   }
   $('bets-table').style.display = round.bets.length ? '' : 'none';
@@ -275,7 +301,7 @@ function renderLast(r) {
   const rows = r.payouts.map(p => `<tr><td>${p.player === accountId ? '<b>you</b>' : short(p.player)}</td><td>${fmtNear(p.amount)}</td></tr>`).join('');
   el.innerHTML = r.roll === null
     ? `<div class="roll">—<small>Round ${r.round_id}: the MPC request timed out, all ${fmtNear(r.pot)} refunded</small></div>`
-    : `<div class="roll">${r.roll}<small>Round ${r.round_id} · pot ${fmtNear(r.pot)} · ${r.payouts.length ? r.payouts.length + ' winner' + (r.payouts.length > 1 ? 's' : '') : 'no winner, pot carried over'}${won ? ' · you won!' : ''}</small></div>`
+    : `<div class="roll">${label(r.roll)}<small>Round ${r.round_id} · pot ${fmtNear(r.pot)} · ${r.payouts.length ? r.payouts.length + ' winner' + (r.payouts.length > 1 ? 's' : '') : 'no winner, pot carried over'}${won ? ' · you won!' : ''}</small></div>`
       + (rows ? `<table><thead><tr><th>Winner</th><th>Payout</th></tr></thead><tbody>${rows}</tbody></table>` : '')
       + `<div class="hint mono" style="margin-top:8px">big_c ${r.big_c}</div>`;
 }
@@ -284,10 +310,10 @@ const rollCache = new Map();
 async function renderRolls(currentRound) {
   const g = gameId, key = i => `${g}:${i}`;
   const ids = []; for (let i = currentRound - 1; i >= 0 && ids.length < 8; i--) ids.push(i);
-  await Promise.all(ids.filter(i => !rollCache.has(key(i))).map(async i => rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g }))));
+  for (const i of ids.filter(i => !rollCache.has(key(i)))) rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g })); // sequential: bursts get rate-limited
   if (g !== gameId) return;
   $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i));
-    return `<tr><td>${i}</td><td class="num">${r ? r.roll : '—'}</td><td class="mono">${r ? r.big_c : 'not recorded'}</td></tr>`; }).join('')
+    return `<tr><td>${i}</td><td class="num">${r ? label(r.roll) : '—'}</td><td class="mono">${r ? r.big_c : 'not recorded'}</td></tr>`; }).join('')
     || '<tr><td colspan="3" class="empty">No rolls yet.</td></tr>';
 }
 
@@ -295,9 +321,9 @@ function showBanner(r) {
   const won = r.payouts.find(p => p.player === accountId);
   const b = $('banner');
   b.className = 'banner show' + (won ? ' win' : '');
-  b.innerHTML = won ? `<b>Round ${r.round_id} rolled ${r.roll}. You won ${fmtNear(won.amount)}!</b>`
+  b.innerHTML = won ? `<b>Round ${r.round_id} rolled ${label(r.roll)}. You won ${fmtNear(won.amount)}!</b>`
     : r.roll === null ? `<b>Round ${r.round_id} timed out; bets were refunded.</b>`
-    : `<b>Round ${r.round_id} rolled ${r.roll}.</b> ${r.payouts.length ? r.payouts.length + ' winner(s) took ' + fmtNear(r.pot) : 'Nobody hit it, ' + fmtNear(r.pot) + ' carries over.'}`;
+    : `<b>Round ${r.round_id} rolled ${label(r.roll)}.</b> ${r.payouts.length ? r.payouts.length + ' winner(s) took ' + fmtNear(r.pot) : 'Nobody hit it, ' + fmtNear(r.pot) + ' carries over.'}`;
   setTimeout(() => b.classList.remove('show'), 15000);
 }
 
@@ -308,8 +334,12 @@ function toast(msg, err = false) {
 }
 
 // ---- polling ----
+let failures = 0;
 async function poll() {
-  if (!game()) return;
+  if (document.hidden && games.length) return; // background tab: keep the first load, skip refreshes
+  try {
+    if (!games.length) await loadGames();
+  } catch (e) { return pollFailed(e); }
   const g = gameId;
   try {
     const [r, last] = await Promise.all([view('get_round', { game_id: g }), view('get_last_round', { game_id: g })]);
@@ -320,7 +350,13 @@ async function poll() {
       lastResult = last; renderLast(last); rollCache.delete(`${g}:${last.round_id}`);
     } else if (!last) renderLast(null);
     if (lastSeenRound !== r.round_id) { lastSeenRound = r.round_id; await renderRolls(r.round_id); }
-  } catch (e) { toast('RPC error: ' + e.message, true); }
+    failures = 0; $('state').classList.remove('offline');
+  } catch (e) { pollFailed(e); }
+}
+function pollFailed(e) {
+  failures++;
+  $('state').classList.add('offline');
+  if (failures === 3) toast('RPC unreachable, retrying: ' + e.message, true);
 }
 
 // ---- wallet redirect result ----
@@ -334,8 +370,9 @@ if (params.get('transactionHashes')) {
 }
 
 initWallet().catch(e => toast('Wallet init failed: ' + e.message, true));
-loadGames().then(poll).catch(e => toast('RPC error: ' + e.message, true));
+poll();
 setInterval(poll, POLL_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 </script>
 </body>
 </html>
