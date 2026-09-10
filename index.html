@@ -47,7 +47,6 @@
   .bar > div { height: 100%; background: linear-gradient(90deg, var(--gold-2), var(--gold)); width: 0; transition: width .4s; }
   .hint { color: var(--muted); font-size: 13px; }
   #balance { color: var(--gold); font-weight: 600; }
-  .verify.ok { color: var(--green); } .verify.bad { color: var(--red); }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
   th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
@@ -74,11 +73,17 @@
     animation: pulse 1s infinite; }
   /* The numbers a round drew, in the order they came out. */
   .drum { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
-  .drum span { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  /* A number is a ball; a worded outcome ("Heads") grows into a pill rather
+     than overflowing the circle. min-width == height keeps digits round. */
+  .drum span { min-width: 30px; height: 30px; padding: 0 8px; border-radius: 999px; display: grid; place-items: center;
     background: radial-gradient(circle at 34% 26%, #fff2c4, #f2c14e 58%, #b8890f); color: #5c4306;
     font: 800 13px/1 system-ui, sans-serif; }
   .drum span.last { box-shadow: 0 0 0 2px var(--green), 0 0 12px rgba(60, 207, 122, .5); }
-  .drum.big span { width: 38px; height: 38px; font-size: 15px; }
+  .drum.big span { min-width: 38px; height: 38px; font-size: 15px; }
+  /* The ledger's balls, and the chip standing in for the ones it elides. */
+  .drum.sm { gap: 4px; margin: 0; }
+  .drum.sm span { min-width: 22px; height: 22px; padding: 0 6px; font-size: 11px; }
+  .drum em { align-self: center; font: 600 11px/1 system-ui, sans-serif; font-style: normal; color: var(--muted); }
   /* The round is drawn and paid before the page hears about it, so the result
      drum plays it back: each ball pops in on its own turn, in the order it came
      out, and the ring on the last one lands with it. */
@@ -137,10 +142,10 @@
   .step:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
   .amount-label { flex: none; }
   .roll { font-size: 72px; font-weight: 800; color: var(--gold); line-height: 1; text-align: center; margin: 6px 0 10px; }
-  .roll small { display: block; font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 4px; }
-  /* Result spinner: the lobby wheel, big enough to label, thrown clockwise and
-     left with the rolled slot under the pointer. It overruns the mark and
-     rocks back onto it, the way a wheel settles against the peg that stopped it. */
+  /* The game's wheel: the bet form and the result in one. It is thrown
+     clockwise and left with the rolled slot under the pointer, overrunning the
+     mark and rocking back onto it, the way a wheel settles against the peg
+     that stopped it. */
   .res-wheel { width: 100%; max-width: 248px; margin: 2px auto 0; }
   .res-wheel svg { display: block; width: 100%; height: auto; }
   .res-wheel .face { transform-origin: 100px 104px; transform: rotate(var(--spin)); }
@@ -168,8 +173,42 @@
     82% { transform: rotate(9deg); }  87% { transform: rotate(0deg); }
     92% { transform: rotate(6deg); }  96% { transform: rotate(1deg); }
   }
-  .res-wheel.spin .win-ring { animation: win-ring .45s ease-out 2.9s both; }
   @keyframes win-ring { from { opacity: 0; } to { opacity: 1; } }
+  /* Betting on the wheel: while the round is open every slot is a target, and
+     the same slot carries your pick, the bets already on it and — once the
+     round has run — the number it landed on. The slots ride inside the turning
+     face, so a click finds the right number whichever way the wheel stands. */
+  .bet-wheel { --spin: 0deg; max-width: 288px; margin-bottom: 2px; }
+  .res-wheel .wedge { fill-opacity: .74; transition: fill-opacity .15s; }
+  .res-wheel .slot.sel .wedge, .res-wheel .slot.win .wedge { fill-opacity: 1; }
+  .res-wheel.pickable .slot { cursor: pointer; }
+  .res-wheel.pickable .slot:hover .wedge { fill-opacity: .93; }
+  .res-wheel .slot.win .num { font-size: 22px; }
+  /* Your pick is pencilled in; a bet the contract has taken and the winning
+     slot are drawn solid, so the three never read as the same mark. */
+  .res-wheel .ring { stroke: none; }
+  .res-wheel .slot.sel .ring { stroke: #fff; stroke-dasharray: 6 5; }
+  .res-wheel .slot.mine .ring { stroke: var(--green); stroke-dasharray: none; }
+  .res-wheel .slot.win .ring { stroke: #fff; stroke-dasharray: none; }
+  /* The slot is a wedge, so it says where the keyboard is by lighting its own
+     outline rather than the box the browser would draw round it. */
+  .res-wheel .slot:focus { outline: none; }
+  .res-wheel .slot:focus-visible .ring { stroke: var(--gold); stroke-dasharray: none; }
+  .res-wheel .cnt { visibility: hidden; }
+  .res-wheel .slot.taken .cnt { visibility: visible; }
+  /* Between the round closing and its numbers coming back the wheel is just
+     turning: the contract is deriving the key it will draw from, and nothing
+     yet knows where it stops. */
+  .res-wheel.turning .face { animation: wheel-run 1.05s linear infinite; }
+  @keyframes wheel-run { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  /* Eight pegs go past per turn, so the pointer is knocked aside eight times a
+     revolution for as long as the wheel is running free. */
+  .res-wheel.turning .peg { animation: peg-run 1.05s linear infinite; }
+  @keyframes peg-run {
+    0%, 12.5%, 25%, 37.5%, 50%, 62.5%, 75%, 87.5%, 100% { transform: rotate(0deg); }
+    6%, 18.5%, 31%, 43.5%, 56%, 68.5%, 81%, 93.5% { transform: rotate(16deg); }
+  }
+  .res-wheel.spin .slot.win .ring { animation: win-ring .45s ease-out 2.9s both; }
   .roll-cap { text-align: center; color: var(--muted); font-size: 13px; margin: 6px 0 12px; }
   /* Result coin: tossed into the air, spinning on its edge, landing on the
      rolled face. --end carries the landing rotation, so heads and tails both
@@ -210,7 +249,67 @@
   /* The landed face keeps a soft halo so the result stays readable after the toss. */
   .res-coin.flip .coin3d::after { content: ''; position: absolute; inset: -7px; border-radius: 50%;
     border: 2px solid var(--gold); opacity: 0; animation: win-ring .4s ease-out 1.85s both; }
-  .banner { grid-column: 1 / -1; background: linear-gradient(90deg, #2a4a1f, #1e3d2c); border: 1px solid var(--green); border-radius: 14px; padding: 16px 20px; display: none; }
+  /* ---- labelled values in place of sentences ---- */
+  .metas { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .metas.center { justify-content: center; }
+  .meta { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px; border-radius: 999px;
+    background: var(--felt-2); border: 1px solid var(--line); font-size: 12px; white-space: nowrap; }
+  .meta i { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  .meta b { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .meta.gold { border-color: var(--gold-2); } .meta.gold b { color: var(--gold); }
+  .meta.win { border-color: var(--gold); background: rgba(242, 193, 78, .15); } .meta.win b { color: var(--gold); }
+  .meta.warn { border-color: var(--red); } .meta.warn b { color: var(--red); }
+  /* The threshold, read off the bar instead of spelled out beside it. */
+  .goal { display: flex; align-items: center; gap: 11px; margin: 10px 0 0; }
+  .goal .bar { position: relative; flex: 1; height: 18px; margin: 0; background: rgba(0, 0, 0, .3); }
+  .goal .bar span { position: absolute; inset: 0; display: grid; place-items: center;
+    font: 700 10px/1 system-ui, sans-serif; letter-spacing: .5px; text-shadow: 0 1px 2px rgba(0, 0, 0, .55); }
+  .goal-to { flex: none; display: inline-flex; align-items: baseline; gap: 5px; font-size: 12px; }
+  .goal-to b { color: var(--gold); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .goal-to i { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  /* A derived key, shown as a fingerprint plus its first bytes: three swatches
+     hued from the key make two rounds tell apart without reading any hex. */
+  .keychip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
+    background: var(--felt-2); border: 1px solid var(--line); color: var(--muted); cursor: pointer;
+    font: 500 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .keychip i { width: 6px; height: 11px; border-radius: 2px; flex: none; }
+  .keychip:hover { border-color: var(--gold); color: var(--text); }
+  /* One round per line: number, seal, the balls it drew, its key. */
+  .ledger { display: grid; }
+  .lrow { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--line); }
+  .lrow:last-child { border-bottom: 0; }
+  .lrow .rid { flex: none; font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .lrow .drum { flex: 1 1 auto; min-width: 0; }
+  .lrow .keychip { flex: none; margin-left: auto; }
+  .lrow .dash { flex: 1; color: var(--muted); }
+  .seal { flex: none; width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center;
+    border: 1px dashed var(--line); font: 700 11px/1 system-ui, sans-serif; color: transparent; }
+  .seal.ok { border: 1px solid var(--green); color: var(--green); box-shadow: 0 0 0 3px rgba(60, 207, 122, .12); }
+  .seal.bad { border: 1px solid var(--red); color: var(--red); }
+  /* The derivation as a flow rather than a paragraph. */
+  .chain { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-top: 14px;
+    padding-top: 14px; border-top: 1px solid var(--line); }
+  .link { display: grid; gap: 3px; align-content: center; padding: 6px 11px; border-radius: 10px;
+    background: var(--felt-2); border: 1px solid var(--line); }
+  .link i { font-style: normal; font-size: 9px; text-transform: uppercase; letter-spacing: .9px; color: var(--muted); }
+  .link b { font: 600 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .chain .arrow { color: var(--gold-2); font-weight: 700; margin-left: 15px; line-height: .8;
+    transform: rotate(90deg); }
+  /* The long-form spec, folded away: one word of it shows until asked for. */
+  .spec { margin-top: 12px; }
+  .spec > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 7px;
+    font: 600 11px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .9px; color: var(--muted); }
+  .spec > summary::-webkit-details-marker { display: none; }
+  .spec > summary::before { content: '\25B8'; color: var(--gold); font-size: 13px; transition: transform .15s; }
+  .spec[open] > summary::before { transform: rotate(90deg); }
+  .spec > summary:hover { color: var(--gold); }
+  .spec dl { display: grid; grid-template-columns: max-content 1fr; gap: 7px 14px; margin: 12px 0 0;
+    font-size: 12.5px; color: var(--muted); }
+  .spec dt { font: 600 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--gold); }
+  .spec dd { margin: 0; }
+  .spec .mono { word-break: normal; overflow-wrap: break-word; }
+  @media (max-width: 520px) { .spec dl { grid-template-columns: 1fr; gap: 2px 0; } .spec dd { margin-bottom: 8px; } }
+  .banner { grid-column: 1 / -1; background: linear-gradient(90deg, #2a4a1f, #1e3d2c); border: 1px solid var(--green); border-radius: 14px; padding: 13px 16px; display: none; }
   .banner.show { display: block; }
   .banner.win { border-color: var(--gold); background: linear-gradient(90deg, #4a3a10, #2b2a12); }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #223; color: #fff; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); display: none; max-width: 90vw; }
@@ -238,9 +337,9 @@
   #lobby { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
   .hero h2 { margin: 0 0 6px; font-size: 26px; letter-spacing: .3px; }
   .hero p { margin: 0; color: var(--muted); max-width: 64ch; }
-  .hero-stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 22px; }
-  .hero-stats span { font-size: 12px; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; }
-  .hero-stats b { color: var(--gold); font-weight: 700; }
+  .hero p b { color: var(--gold); font-weight: 600; }
+  .hero .metas { margin: 14px 0 22px; }
+  .hero .meta { background: var(--card); }
   .game-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); }
   .game-card { display: flex; flex-direction: column; padding: 0; overflow: hidden; text-align: left; font: inherit; cursor: pointer;
     background: var(--card); border: 1px solid var(--line); border-radius: 16px; color: var(--text);
@@ -253,23 +352,20 @@
   .gc-top h3 { margin: 0; font-size: 17px; }
   .chip { font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
   .chip.feat { color: var(--gold); border-color: var(--gold-2); }
-  .gc-rules { flex: 1; margin: 0; font-size: 13px; color: var(--muted); }
-  .gc-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+  .gc-meta { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; align-content: start; }
   .gc-meta div { background: var(--felt-2); border-radius: 8px; padding: 7px 9px; }
   .gc-meta dt { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; }
   .gc-meta dd { margin: 2px 0 0; font-size: 13px; font-weight: 700; }
   .gc-foot { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
   /* The lobby card is itself a <button>, so the call to action is a styled span
      rather than a nested button. It grows to fill whatever the state badge leaves. */
-  .gc-play { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  .gc-play { flex: 1; display: inline-flex; align-items: center; justify-content: center;
     padding: 10px 14px; border-radius: 10px; border: 1px solid var(--gold);
     background: linear-gradient(180deg, var(--gold), var(--gold-2)); color: #1b1b1b;
     font-size: 14px; font-weight: 800; letter-spacing: .4px;
     transition: filter .15s, box-shadow .15s, transform .15s; }
-  .gc-play i { font-style: normal; transition: transform .15s; }
   .game-card:hover .gc-play, .game-card:focus-visible .gc-play {
     filter: brightness(1.08); box-shadow: 0 6px 18px rgba(242, 193, 78, .28); }
-  .game-card:hover .gc-play i, .game-card:focus-visible .gc-play i { transform: translateX(4px); }
   .game-card:active .gc-play { transform: translateY(1px); filter: brightness(.95); box-shadow: none; }
   /* Card art: each game gets its own idle-still, hover-animated illustration. */
   .coin, .ball { transform-box: fill-box; transform-origin: center; }
@@ -284,12 +380,13 @@
   @keyframes bob { 50% { transform: translateY(-9px); } }
   @media (prefers-reduced-motion: reduce) {
     .game-card, .game-card:hover { transform: none; }
-    .gc-play, .gc-play i, .game-card:hover .gc-play i { transition: none; transform: none; }
+    .gc-play { transition: none; transform: none; }
     .game-card:hover .coin, .game-card:hover .wheel, .game-card:hover .ball { animation: none; }
     .grid.rolling button:not(.out), .grid button.just { animation: none; }
     .board-live .dot { animation: none; }
     .res-wheel.spin .face, .res-wheel.spin .peg { animation: none; }
-    .res-wheel.spin .win-ring { animation: none; opacity: 1; }
+    .res-wheel.turning .face, .res-wheel.turning .peg { animation: none; }
+    .res-wheel.spin .slot.win .ring { animation: none; opacity: 1; }
     .res-coin.flip .coin3d, .res-coin.flip .toss, .res-coin.flip .coin-shadow { animation: none; }
     .res-coin.flip .coin3d::after { animation: none; opacity: 1; }
   }
@@ -311,9 +408,9 @@
 <main id="lobby">
   <section class="hero">
     <h2>Choose your game</h2>
-    <p>Every round is rolled from the MPC network's derived key for this contract — pairing-verified
-      on-chain before the casino sees it, and recomputable in your browser from the round's public data.</p>
-    <div class="hero-stats" id="house"></div>
+    <p>Every round is drawn from the MPC network's derived key — <b>verified on-chain</b>,
+      <b>recomputable in your browser</b>.</p>
+    <div class="metas" id="house"></div>
   </section>
   <div class="game-grid" id="game-grid"><div class="empty">Loading games…</div></div>
 </main>
@@ -328,9 +425,11 @@
       <div class="stat"><div class="k">Jackpot carried</div><div class="v gold" id="carry">–</div></div>
       <div class="stat"><div class="k">Pot if it rolls now</div><div class="v gold" id="pot">–</div></div>
     </div>
-    <div class="bar"><div id="bar"></div></div>
-    <div class="hint" id="progress"></div>
-    <div class="hint" id="cut"></div>
+    <div class="goal">
+      <div class="bar"><div id="bar"></div><span id="pct"></span></div>
+      <span class="goal-to"><b id="goal">&ndash;</b><i>to roll</i></span>
+    </div>
+    <div class="metas" id="cut" style="margin-top:11px"></div>
     <div id="my-cards"></div>
     <div class="tscroll" style="margin-top:12px">
       <table id="bets-table">
@@ -338,18 +437,19 @@
         <tbody id="bets"></tbody>
       </table>
     </div>
-    <div class="empty" id="no-bets">No bets yet. Be the first.</div>
+    <div class="empty" id="no-bets">No bets yet.</div>
   </section>
 
   <section class="card">
     <h2>Place your bet <span class="badge" id="game-name"></span></h2>
-    <div class="hint" id="rules"></div>
+    <details class="spec" id="rules-fold"><summary>Rules</summary><p class="hint" id="rules" style="margin:10px 0 0"></p></details>
     <div class="toolbar" id="pick-tools" hidden>
       <button class="btn ghost mini" type="button" id="quick">Quick pick</button>
       <button class="btn ghost mini" type="button" id="clear">Clear</button>
       <span class="hint" id="pick-count"></span>
     </div>
     <div class="board-live" id="board-live" hidden aria-live="polite"></div>
+    <div class="res-wheel bet-wheel" id="wheel-board" hidden></div>
     <div class="grid" id="numbers"></div>
     <div class="row">
       <label class="hint amount-label" for="amount">Amount</label>
@@ -361,7 +461,7 @@
       </div>
       <button class="btn" id="bet" disabled>Bet on –</button>
     </div>
-    <div class="hint" id="bet-hint" style="margin-top:8px"></div>
+    <div class="metas" id="bet-hint" style="margin-top:10px"></div>
   </section>
 
   <section class="card">
@@ -370,9 +470,28 @@
   </section>
 
   <section class="card">
-    <h2>Recent draws</h2>
-    <div class="tscroll"><table><thead><tr><th>Round</th><th>Numbers drawn</th><th>big_c</th></tr></thead><tbody id="rolls"></tbody></table></div>
-    <div class="hint" style="margin-top:8px">Every draw is one <span class="mono">sha256(preimage) as a big-endian u256</span>, reduced over the numbers still in the drum — so a repeat is reconsidered rather than drawn twice. The <span class="mono">preimage</span> is the compact JSON of <span class="mono">{input, draw, drawn, big_c}</span>: the round's public data (game, round, limits, pot, every bet) from <span class="mono">get_roll_input</span>, the index of this draw, the numbers already out, and <span class="mono">big_c</span>, the MPC network's derived key for <span class="mono">(contract, path)</span> — path <span class="mono">round-N</span> for game 0 and <span class="mono">game-G-round-N</span> otherwise — pairing-verified on-chain before the casino sees it. One key per round: the contract draws the whole round in the callback that receives it, and <span class="mono">draw</span> and <span class="mono">drawn</span> are what give each number a preimage of its own. A single-outcome game is decided by its first number; bingo keeps drawing until a card is full. The check mark means this page recomputed every number of the round.</div>
+    <h2><span>Recent draws</span> <span class="badge" id="verified-legend" title="Every number recomputed from get_roll_input, in this browser">&#10003; verified here</span></h2>
+    <div class="ledger" id="rolls"></div>
+    <div class="chain" aria-label="How each number is drawn">
+      <span class="link"><i>preimage</i><b>input&middot;draw&middot;drawn&middot;big_c</b></span>
+      <b class="arrow" aria-hidden="true">&rarr;</b>
+      <span class="link"><i>hash</i><b>sha256 &rarr; u256</b></span>
+      <b class="arrow" aria-hidden="true">&rarr;</b>
+      <span class="link"><i>reduce</i><b>mod numbers left</b></span>
+      <b class="arrow" aria-hidden="true">&rarr;</b>
+      <span class="drum sm"><span>7</span></span>
+    </div>
+    <details class="spec">
+      <summary>How a draw is derived</summary>
+      <dl>
+        <dt>big_c</dt><dd>The MPC network's derived key for <span class="mono">(contract, path)</span>, pairing-verified on-chain before the casino sees it. One per round.</dd>
+        <dt>path</dt><dd><span class="mono">round-N</span> for game 0, <span class="mono">game-G-round-N</span> otherwise.</dd>
+        <dt>input</dt><dd>The round's public data from <span class="mono">get_roll_input</span>: game, round, limits, pot, every bet.</dd>
+        <dt>draw, drawn</dt><dd>This draw's index and the numbers already out &mdash; what gives each number a preimage of its own.</dd>
+        <dt>reduce</dt><dd>Over the numbers still in the drum, so a repeat is reconsidered rather than drawn twice. One number decides a single-outcome game; bingo draws until a card fills.</dd>
+        <dt>&#10003;</dt><dd>Every number of the round recomputed here, from the contract's own inputs.</dd>
+      </dl>
+    </details>
   </section>
 </main>
 <div class="toast" id="toast"></div>
@@ -434,6 +553,31 @@ function tag(id, { kind = '', role = '', text = null } = {}) {
     + (label ? `<em>${esc(label)}</em>` : '') + `</a>`;
 }
 const label = n => { const g = game(); return g && g.labels ? g.labels[n] : String(n); };
+// A value under a two-word label, instead of a sentence around it.
+const meta = (k, v, kind = '') => `<span class="meta ${kind}"><i>${esc(k)}</i><b>${v}</b></span>`;
+// A derived key as three swatches hued from thirds of it plus its first bytes:
+// enough to see that two rounds ran on different keys without reading the hex.
+function keyChip(k) {
+  const w = Math.ceil(k.length / 3);
+  const fp = [0, 1, 2].map(i => `<i style="background:hsl(${hue(k.slice(i * w, i * w + w))} 62% 58%)"></i>`).join('');
+  return `<button type="button" class="keychip" data-key="${esc(k)}" title="${esc(k)}\nClick to copy">`
+    + `${fp}<b>${esc(k.slice(0, 8))}\u2026</b></button>`;
+}
+document.addEventListener('click', e => {
+  const c = e.target.closest('.keychip');
+  if (c && navigator.clipboard) navigator.clipboard.writeText(c.dataset.key).then(() => toast('Key copied'), () => {});
+});
+// The numbers a round drew, as balls. A full drum is 36 of them, so a long
+// round shows its opening, a count of what is elided, and the number that
+// ended it — the one that actually decided the round.
+const BALLS_SHOWN = 10;
+function drumRow(ns, cls = 'sm') {
+  const long = ns.length > BALLS_SHOWN;
+  const head = (long ? ns.slice(0, BALLS_SHOWN - 1) : ns).map(x => `<span>${esc(label(x))}</span>`).join('');
+  return `<span class="drum ${cls}">${head}`
+    + (long ? `<em>+${ns.length - BALLS_SHOWN}</em><span class="last">${esc(label(ns[ns.length - 1]))}</span>` : '')
+    + `</span>`;
+}
 
 // ---- RPC views ----
 async function view(method, args = {}) {
@@ -566,20 +710,19 @@ function renderLobby() {
       <div class="art-wrap">${ART[g.kind] || ART._}</div>
       <div class="gc-body">
         <div class="gc-top"><h3>${esc(g.name)}</h3><span class="chip">${g.picks > 1 ? `pick ${g.picks} of ${g.outcomes}` : `${g.outcomes} outcomes`}</span>${g.default ? '<span class="chip feat">Featured</span>' : ''}</div>
-        <p class="gc-rules">${esc(g.rules)}</p>
-        <dl class="gc-meta">
+        <dl class="gc-meta" title="${esc(g.rules)}">
           <div><dt>Round</dt><dd>#${g.round_id}</dd></div>
           <div><dt>Min bet</dt><dd>${fmtNear(g.min_bet)}</dd></div>
           <div><dt>Rolls at</dt><dd>${fmtNear(g.threshold)}</dd></div>
         </dl>
-        <div class="gc-foot">${g.state === 'Open' ? '' : `<span class="badge ${g.state}">${g.state}</span>`}<span class="gc-play">Play <i>→</i></span></div>
+        <div class="gc-foot">${g.state === 'Open' ? '' : `<span class="badge ${g.state}">${g.state}</span>`}<span class="gc-play">Play</span></div>
       </div>
     </button>`).join('')
     || `<div class="empty">${snapshot ? 'This contract has no games registered.' : 'Loading games…'}</div>`;
   for (const b of el.querySelectorAll('.game-card')) b.onclick = () => go(Number(b.dataset.game));
-  if (snapshot) $('house').innerHTML = `<span><b>${games.length}</b> games live</span>`
-    + `<span>House keeps <b>${snapshot.cut_bps / 100}%</b> of each winner's profit</span>`
-    + `<span>Collected so far <b>${fmtNear(snapshot.house_gains)}</b></span>`;
+  if (snapshot) $('house').innerHTML = meta('games', games.length)
+    + meta('house cut', snapshot.cut_bps / 100 + '%')
+    + meta('collected', fmtNear(snapshot.house_gains), 'gold');
 }
 
 function renderGameHeader() {
@@ -588,6 +731,7 @@ function renderGameHeader() {
   document.title = g ? `${g.name} · ${BRAND}` : BRAND;
   $('game-name').textContent = g ? g.name : '';
   $('rules').textContent = g ? g.rules : '';
+  $('rules-fold').hidden = !g;
 }
 
 function renderView() {
@@ -616,6 +760,7 @@ function setUrl(id, push) {
 function go(id, push = true) {
   if (push && id === gameId) return;
   gameId = id; selected = []; round = null; lastResult = null; lastSeenRound = null;
+  wheelLanded = null; wheelSpinning = false; clearTimeout(wheelTimer);
   $('banner').classList.remove('show');
   $('bets').innerHTML = ''; $('rolls').innerHTML = '';
   if (push) setUrl(id, true);
@@ -631,21 +776,44 @@ addEventListener('popstate', () => {
 
 const gridShape = () => { const g = game(); return g ? `${g.game_id}:${g.outcomes}:${g.picks}` : ''; };
 
+// The board a game is played on: the eight-slot wheel for Crazy Spinner, a
+// grid of numbers for everything else. Only one of the two is ever populated,
+// so everything that marks the board can address both without asking which.
+const onWheel = () => { const g = game(); return !!g && g.kind === 'CrazySpinner' && g.outcomes === SLOTS; };
+
 function buildGrid() {
-  const g = game(), n = g.outcomes;
+  const g = game(), n = g.outcomes, wheel = onWheel();
   grid.innerHTML = ''; grid.dataset.shape = gridShape();
-  // A card is a square board; a single-outcome game is one row, wrapped at ten.
-  const cols = g.picks > 1 ? Math.round(Math.sqrt(n)) : Math.min(n, 10);
-  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  grid.classList.toggle('big', n <= 2);
-  for (let i = 0; i < n; i++) {
-    const b = document.createElement('button');
-    b.textContent = label(i); b.dataset.i = i;
-    b.onclick = () => pick(i);
-    grid.appendChild(b);
+  wheelBoard.innerHTML = '';
+  grid.hidden = wheel; wheelBoard.hidden = !wheel;
+  if (wheel) buildWheel();
+  else {
+    // A card is a square board; a single-outcome game is one row, wrapped at ten.
+    const cols = g.picks > 1 ? Math.round(Math.sqrt(n)) : Math.min(n, 10);
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.classList.toggle('big', n <= 2);
+    for (let i = 0; i < n; i++) {
+      const b = document.createElement('button');
+      b.textContent = label(i); b.dataset.i = i;
+      b.onclick = () => pick(i);
+      grid.appendChild(b);
+    }
   }
   $('pick-tools').hidden = g.picks < 2; // one number needs no filling aids
   syncPicks(); // rebuilding the board loses the classes but not the picks
+}
+
+// The wheel is the bet form: clicking a slot is how a number is picked, so the
+// slots are buttons in their own right, reachable by keyboard as well.
+function buildWheel() {
+  wheelBoard.className = 'res-wheel bet-wheel';
+  wheelBoard.style.removeProperty('--spin');
+  wheelBoard.innerHTML = wheelMarkup();
+  for (const slot of wheelBoard.querySelectorAll('.slot')) {
+    const i = +slot.dataset.i;
+    slot.onclick = () => { if (wheelBoard.classList.contains('pickable')) pick(i); };
+    slot.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); slot.onclick(); } };
+  }
 }
 
 // One number for a single-outcome game, `picks` of them for a bingo card;
@@ -665,7 +833,9 @@ function syncPicks() {
   const g = game();
   if (g && g.picks > 1) selected.sort((a, b) => a - b);
   [...grid.children].forEach(c => c.classList.toggle('sel', selected.includes(+c.dataset.i)));
-  $('pick-count').textContent = g && g.picks > 1 ? `${selected.length} of ${g.picks} chosen` : '';
+  for (const slot of wheelBoard.querySelectorAll('.slot')) slot.classList.toggle('sel', selected.includes(+slot.dataset.i));
+  syncWheelCap();
+  $('pick-count').innerHTML = g && g.picks > 1 ? meta('picked', `${selected.length}/${g.picks}`) : '';
   updateBetButton();
 }
 
@@ -684,7 +854,7 @@ $('clear').onclick = () => { selected = []; syncPicks(); };
 
 // ---- betting ----
 let selected = [], round = null, lastSeenRound = null, lastResult = null, snapshot = null;
-const grid = $('numbers');
+const grid = $('numbers'), wheelBoard = $('wheel-board');
 // The contract takes one bet per player per round, so this is your whole stake
 // in it.
 const myBet = () => round && accountId ? round.bets.find(b => b.player === accountId) : null;
@@ -697,12 +867,14 @@ function updateBetButton() {
     : picks > 1 ? `Pick ${picks - selected.length} more` : 'Bet on –';
   const open = round && round.state === 'Open';
   btn.disabled = !(walletApi && accountId && ready && open && !mine);
-  $('bet-hint').textContent = !round ? 'Loading round…'
-    : !accountId ? 'Connect a testnet wallet to bet.'
-    : !open ? (round.state === 'Paying' ? 'Round is settling, bets reopen in a moment.'
-      : 'The round is drawing its numbers; bets reopen once it settles.')
-    : mine ? `Your ${picks > 1 ? 'card' : 'pick'}: ${cards(mine.numbers)} for ${fmtNear(mine.amount)}. One bet per player per round — bet again once this round settles.`
-    : `${picks > 1 ? `Pick ${picks} numbers. ` : ''}Minimum bet ${fmtNear(round.min_bet)}. You will be redirected to the wallet to approve.`;
+  // The button says what you may do and the card above says what you already
+  // hold, so this line is only ever the numbers neither of them carries.
+  $('bet-hint').innerHTML = !round ? '<span class="hint">Loading round…</span>'
+    : !accountId ? '<span class="hint">Connect a testnet wallet to bet.</span>'
+    : !open ? meta('bets', 'closed')
+    : mine ? meta('your stake', fmtNear(mine.amount), 'gold') + meta('next bet', 'when this round settles')
+    : meta('min bet', fmtNear(round.min_bet), 'gold')
+      + (picks > 1 ? meta('pick', `${picks} of ${game().outcomes}`) : '');
 }
 $('bet').onclick = async () => {
   const amount = $('amount').value;
@@ -729,8 +901,10 @@ function renderRound() {
   $('pot').textContent = fmtNear((BigInt(round.total_bets) + BigInt(round.carry)).toString());
   const pct = Math.min(100, Number(BigInt(round.total_bets) * 100n / BigInt(round.threshold)));
   $('bar').style.width = pct + '%';
-  $('progress').textContent = `${fmtNear(round.total_bets)} of ${fmtNear(round.threshold)} needed to roll (${pct}%)`;
-  if (snapshot) $('cut').textContent = `Casino keeps ${snapshot.cut_bps / 100}% of each winner's profit · ${fmtNear(snapshot.house_gains)} so far`;
+  $('pct').textContent = pct + '%';
+  $('goal').textContent = fmtNear(round.threshold);
+  if (snapshot) $('cut').innerHTML = meta('house cut', snapshot.cut_bps / 100 + '%')
+    + meta('collected', fmtNear(snapshot.house_gains));
   const picks = game() ? game().picks : 1;
   $('bets-col').textContent = picks > 1 ? 'Card' : 'Number';
   const tb = $('bets'); tb.innerHTML = '';
@@ -759,6 +933,7 @@ function renderRound() {
   });
   grid.classList.toggle('rolling', round.state === 'Rolling');
   grid.classList.toggle('locked', !open);
+  syncWheel(counts, mine, open);
   $('pick-tools').hidden = picks < 2 || !open; // nothing to pick while the drum turns
   renderBoardLive(picks);
   renderMyCards(picks);
@@ -771,14 +946,8 @@ function renderRound() {
 function renderBoardLive(picks) {
   const el = $('board-live'), g = game();
   if (!g || round.state === 'Open') { el.hidden = true; el.innerHTML = ''; return; }
-  const b = myBet();
-  const parts = [`<span class="dot"></span>` + (round.state === 'Rolling'
-    ? picks > 1
-      ? `Deriving the round's key — every number is drawn from it in one go`
-      : `Deriving the round's key…`
-    : `Round is settling`)];
-  if (picks > 1 && b) parts.push(`your card ${cardNums(b.numbers, picks)}`);
-  el.innerHTML = parts.join(' <span aria-hidden="true">·</span> ');
+  el.innerHTML = `<span class="dot"></span>`
+    + (round.state === 'Rolling' ? `Deriving the round key` : `Settling`);
   el.hidden = false;
 }
 
@@ -788,11 +957,7 @@ function renderMyCards(picks) {
   const el = $('my-cards'), b = myBet();
   if (picks < 2 || !b) { el.innerHTML = ''; return; }
   el.innerHTML = `<div class="mycard"><h3>Your card · ${fmtNear(b.amount)}</h3>`
-    + `<div class="row">${cardNums(b.numbers, picks)}</div>`
-    + `<div class="hint" style="margin-top:7px">` + (round.state === 'Open'
-      ? `All ${picks} have to come out before any other card fills.`
-      : 'The round is drawing every number now — the result is one block away.')
-    + `</div></div>`;
+    + `<div class="row">${cardNums(b.numbers, picks)}</div></div>`;
 }
 $('amount').oninput = () => { $('amount').dataset.touched = '1'; };
 // The ± buttons stand in for the native spinners: same steps, but visible and
@@ -803,28 +968,42 @@ for (const [id, dir] of [['amount-down', -1], ['amount-up', 1]]) $(id).onclick =
   el.dataset.touched = '1';
 };
 
-// Crazy Spinner's result, drawn instead of printed: the wheel is thrown
-// clockwise and runs down until the rolled slot sits under the pointer, then
-// the winning slot lights up. The numbers and the pegs ride the wheel, so the
-// winner comes to rest upright and the pointer ticks off every slot it passes.
-function spinnerWheel(roll) {
+// Crazy Spinner's wheel, which is both how a bet is placed and how the round
+// is watched: while the round is open its slots are the bet form, and when the
+// round runs the same wheel is thrown clockwise and comes down on the number
+// the contract drew. The numbers and the pegs ride the face, so the winner
+// comes to rest upright and the pointer ticks off every slot it passes.
+function wheelMarkup() {
   const cx = 100, cy = 104, r = 78;
   const pt = (rad, deg) => { const t = (deg - 90) * Math.PI / 180; return [cx + rad * Math.cos(t), cy + rad * Math.sin(t)]; };
-  const slices = Array.from({ length: SLOTS }, (_, i) =>
-    wedge(cx, cy, r, i, `fill="${SLOT_COLS[i % 4]}" fill-opacity="${i === roll ? 1 : .72}" stroke="#2a1748" stroke-width="1"`)).join('');
-  const nums = Array.from({ length: SLOTS }, (_, i) =>
-    `<text x="${cx}" y="${(cy - r * .66).toFixed(1)}" transform="rotate(${slotMid(i)} ${cx} ${cy})"`
-    + ` text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif"`
-    + ` font-size="${i === roll ? 22 : 17}" font-weight="800" fill="${SLOT_INK[i % 4]}" fill-opacity="${i === roll ? 1 : .7}"`
-    + `>${esc(label(i))}</text>`).join('');
+  // One group per slot, each its own button: a click anywhere in the wedge is
+  // a pick, and because the group turns with the face the hit test stays right
+  // however far round the wheel has come.
+  const slots = Array.from({ length: SLOTS }, (_, i) => {
+    const rot = `rotate(${slotMid(i)} ${cx} ${cy})`;
+    const ny = (cy - r * .62).toFixed(1), by = (cy - r * .88).toFixed(1);
+    return `<g class="slot" data-i="${i}" role="button" tabindex="0" aria-label="Pick ${esc(label(i))}">`
+      + wedge(cx, cy, r, i, `class="wedge" fill="${SLOT_COLS[i % 4]}" stroke="#2a1748" stroke-width="1"`)
+      + `<text class="num" x="${cx}" y="${ny}" transform="${rot}" text-anchor="middle" dominant-baseline="middle"`
+      + ` font-family="system-ui,sans-serif" font-size="18" font-weight="800" fill="${SLOT_INK[i % 4]}">${esc(label(i))}</text>`
+      // How many players are already on this slot, out by the rim where it
+      // cannot be mistaken for the slot's own number.
+      + `<g class="cnt" transform="${rot}">`
+      + `<circle cx="${cx}" cy="${by}" r="8.5" fill="#e05a5a" stroke="#2a1748" stroke-width="1"/>`
+      + `<text class="cnt-n" x="${cx}" y="${by}" text-anchor="middle" dominant-baseline="middle"`
+      + ` font-family="system-ui,sans-serif" font-size="10" font-weight="800" fill="#fff"></text></g>`
+      // The mark — your pick, your bet, the winner — drawn last so its stroke
+      // sits over the neighbouring wedges rather than under them.
+      + wedge(cx, cy, r, i, `class="ring" fill="none" stroke-width="3.5" stroke-linejoin="round"`)
+      + `</g>`;
+  }).join('');
   // One peg per slot divider: what the pointer ticks against, and what stops
   // the wheel. The rolled slot's middle lands under the pointer, between two.
   const pegs = Array.from({ length: SLOTS }, (_, i) => {
     const [x, y] = pt(r - 3, i * SLICE);
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" fill="#f6efdc" stroke="#2a1748" stroke-width="1"/>`;
   }).join('');
-  return `<div class="res-wheel spin" style="--spin:${-slotMid(roll)}deg">`
-    + `<svg viewBox="0 0 200 200" role="img" aria-label="The spinner landed on ${esc(label(roll))}">`
+  return `<svg viewBox="0 0 200 200" role="group" aria-label="The spinner: click a slot to pick that number">`
     + `<defs>`
     + `<linearGradient id="sp-bezel" x1="0" y1="0" x2="0" y2="1">`
     + `<stop offset="0" stop-color="#ffe6a3"/><stop offset=".5" stop-color="#c8951c"/><stop offset="1" stop-color="#8a6512"/>`
@@ -835,17 +1014,87 @@ function spinnerWheel(roll) {
     + `<ellipse cx="${cx}" cy="${cy + r + 14}" rx="${r * .8}" ry="7" fill="#1a0f2e" fill-opacity=".45"/>`
     + `<circle cx="${cx}" cy="${cy}" r="${r + 9}" fill="url(#sp-bezel)"/>`
     + `<circle cx="${cx}" cy="${cy}" r="${r + 3}" fill="#2a1748"/>`
-    + `<g class="face">${slices}${pegs}${nums}`
-    + wedge(cx, cy, r, roll, `class="win-ring" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"`)
-    + `</g>`
+    + `<g class="face">${slots}${pegs}</g>`
     // Static sheen and rim shadow: they belong to the light, not the wheel, so
-    // they sit outside the spinning group and stay put as it turns.
-    + `<ellipse cx="${cx - 26}" cy="${cy - 30}" rx="46" ry="30" fill="url(#sp-gloss)" transform="rotate(-32 ${cx - 26} ${cy - 30})"/>`
-    + `<circle cx="${cx}" cy="${cy}" r="${r + 1}" fill="none" stroke="#1a0f2e" stroke-opacity=".45" stroke-width="4"/>`
+    // they sit outside the spinning group and stay put as it turns. The hub is
+    // drawn over the wedges, which meet under it.
+    + `<ellipse cx="${cx - 26}" cy="${cy - 30}" rx="46" ry="30" fill="url(#sp-gloss)" transform="rotate(-32 ${cx - 26} ${cy - 30})" pointer-events="none"/>`
+    + `<circle cx="${cx}" cy="${cy}" r="${r + 1}" fill="none" stroke="#1a0f2e" stroke-opacity=".45" stroke-width="4" pointer-events="none"/>`
     + `<circle cx="${cx}" cy="${cy}" r="15" fill="url(#sp-hub)" stroke="#2a1748" stroke-width="3"/>`
     + `<circle cx="${cx}" cy="${cy}" r="5" fill="#2a1748"/>`
     + `<path class="peg" d="M88 2 h24 l-12 30 z" fill="url(#sp-bezel)" stroke="#2a1748" stroke-width="1.5" stroke-linejoin="round"/>`
-    + `</svg></div>`;
+    + `</svg>`
+    + `<div class="roll-cap" id="wheel-cap"></div>`;
+}
+
+// ---- the wheel's three states ----
+// Open: a bet form. Closed with the numbers still to come: turning, because
+// nothing yet knows where it stops. Result in: thrown onto the winning slot.
+let wheelSpinning = false, wheelLanded = null, wheelTimer = null;
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const setWheelCap = t => { const el = $('wheel-cap'); if (el) el.innerHTML = t; };
+
+// The line under the wheel says what the wheel itself cannot: whose numbers
+// are on it, and what it is waiting for. Left alone mid-spin, so the result is
+// not given away before the wheel has come down on it.
+function syncWheelCap() {
+  if (wheelSpinning || !round) return;
+  const b = myBet();
+  setWheelCap(round.state !== 'Open' && wheelLanded !== round.round_id
+      ? 'Deriving the round key'
+    : b ? meta('your number', esc(label(b.numbers[0])), 'gold')
+    : selected.length ? meta('picked', esc(label(selected[0])), 'gold')
+    : 'Pick a slot');
+}
+
+// The wheel's marks and its motion, from the round: which slots have bets on
+// them, which is yours, whether a slot can be picked at all, and whether the
+// wheel should be turning. A no-op for games that are played on the grid.
+function syncWheel(counts, mine, open) {
+  const slots = wheelBoard.querySelectorAll('.slot');
+  if (!slots.length) return;
+  for (const slot of slots) {
+    const n = +slot.dataset.i;
+    slot.classList.toggle('taken', !!counts[n]);
+    slot.classList.toggle('mine', mine.has(n));
+    slot.querySelector('.cnt-n').textContent = counts[n] || '';
+    slot.setAttribute('tabindex', open ? '0' : '-1'); // a closed round is not a bet form
+  }
+  wheelBoard.classList.toggle('pickable', open);
+  if (!wheelSpinning) {
+    const turning = !open && wheelLanded !== round.round_id;
+    // A round of its own to run: the wheel leaves the last one's landing
+    // behind rather than carrying that winner into this spin.
+    if (turning && wheelBoard.classList.contains('spin')) {
+      wheelBoard.classList.remove('spin');
+      for (const slot of slots) slot.classList.remove('win');
+    }
+    wheelBoard.classList.toggle('turning', turning);
+  }
+  syncWheelCap();
+}
+
+// The round's result is what stops the wheel: it is thrown clockwise and runs
+// down until the winning slot sits under the pointer. A refunded round drew
+// nothing, so the wheel is simply let go.
+function landWheel(r) {
+  if (!wheelBoard.querySelector('.slot')) return;
+  wheelLanded = r.round_id;
+  clearTimeout(wheelTimer);
+  wheelSpinning = false;
+  const roll = r.refunded ? null : r.draws[0];
+  if (roll == null) { wheelBoard.classList.remove('turning'); return syncWheelCap(); }
+  for (const slot of wheelBoard.querySelectorAll('.slot')) slot.classList.toggle('win', +slot.dataset.i === roll);
+  wheelBoard.classList.remove('turning', 'spin');
+  void wheelBoard.offsetWidth; // let the landing animation play again from the top
+  wheelBoard.style.setProperty('--spin', `${-slotMid(roll)}deg`);
+  wheelBoard.classList.add('spin');
+  wheelSpinning = true;
+  setWheelCap('Spinning');
+  wheelTimer = setTimeout(() => {
+    wheelSpinning = false;
+    setWheelCap(meta('landed on', esc(label(roll)), 'win'));
+  }, reducedMotion() ? 0 : 3000);
 }
 
 // Coin Flip's result, drawn instead of printed: the coin is tossed, spins on
@@ -875,27 +1124,42 @@ function bingoDrum(draws) {
   }).join('') + `</div>`;
 }
 
+// What the old caption spelled out in a sentence, minus the sentence: the
+// round's numbers as labelled pills under whatever drew the result.
+function resultMetas(r, extra) {
+  const won = r.payouts.find(p => p.player === accountId);
+  return `<div class="metas center" style="margin:8px 0 12px">`
+    + meta('round', '#' + r.round_id)
+    + meta('pot', fmtNear(r.pot), 'gold')
+    + (extra || '')
+    + (r.payouts.length ? meta(r.payouts.length > 1 ? 'winners' : 'winner', r.payouts.length)
+                        : meta('no winner', 'carried'))
+    + (won ? meta('you won', fmtNear(won.amount), 'win') : '')
+    + `</div>`;
+}
+
 function renderLast(r) {
   const el = $('last');
   if (!r) { el.innerHTML = '<div class="empty">No round settled yet.</div>'; return; }
   if (r.refunded) {
-    el.innerHTML = `<div class="roll">—<small>Round ${r.round_id}: the MPC request timed out, all ${fmtNear(r.pot)} refunded</small></div>`;
+    el.innerHTML = `<div class="roll">—</div><div class="metas center">`
+      + meta('round', '#' + r.round_id)
+      + meta('timed out', fmtNear(r.pot) + ' refunded', 'warn') + `</div>`;
     return;
   }
-  const won = r.payouts.some(p => p.player === accountId);
   const rows = r.payouts.map(p => `<tr><td>${tag(p.player)}</td><td>${fmtNear(p.amount)}</td></tr>`).join('');
-  const cap = `Round ${r.round_id} · pot ${fmtNear(r.pot)} · ${r.payouts.length ? r.payouts.length + ' winner' + (r.payouts.length > 1 ? 's' : '') : 'no winner, pot carried over'}${won ? ' · you won!' : ''}`;
-  const g = game(); // bingo, the spinner and the coin draw their result; the rest print it
+  // Bingo and the coin draw their result here; the spinner's own wheel above
+  // has just landed on it, so this card only records the number it stopped at.
+  const g = game();
   const roll = r.draws[0];
+  const cap = resultMetas(r, g && g.picks > 1 ? meta('drawn', `${r.draws.length}/${g.outcomes}`) : '');
   el.innerHTML = (g && g.picks > 1
-      ? bingoDrum(r.draws) + `<div class="roll-cap">${cap} · ${r.draws.length} of ${g.outcomes} numbers drawn</div>`
-    : g && g.kind === 'CrazySpinner' && g.outcomes === SLOTS
-      ? spinnerWheel(roll) + `<div class="roll-cap">${cap}</div>`
+      ? bingoDrum(r.draws) + cap
     : g && g.kind === 'CoinFlip' && g.outcomes === 2
-      ? coinFlip(roll) + `<div class="roll-cap">${cap}</div>`
-      : `<div class="roll">${label(roll)}<small>${cap}</small></div>`)
-    + (rows ? `<div class="tscroll"><table><thead><tr><th>Winner</th><th>Payout</th></tr></thead><tbody>${rows}</tbody></table></div>` : '')
-    + `<div class="hint mono" style="margin-top:8px">big_c ${esc(r.big_c)}</div>`;
+      ? coinFlip(roll) + cap
+      : `<div class="roll">${label(roll)}</div>` + cap)
+    + (rows ? `<div class="tscroll"><table><tbody>${rows}</tbody></table></div>` : '')
+    + `<div class="metas" style="margin-top:10px">${keyChip(r.big_c)}</div>`;
 }
 
 // Recompute every number a round drew, from the contract's stored preimages.
@@ -932,12 +1196,14 @@ async function renderRolls(currentRound) {
   for (const i of ids.filter(i => !rollCache.has(key(i)))) rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g })); // sequential: bursts get rate-limited
   if (g !== gameId) return;
   $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i)); const drew = r && r.draws.length;
-    return `<tr><td>${i}</td><td class="num">${drew ? r.draws.map(label).join(r.draws.length > 1 ? ' · ' : ' ') : '—'}<span class="verify" id="v-${g}-${i}"></span></td><td class="mono">${drew ? esc(r.big_c) : 'not recorded'}</td></tr>`; }).join('')
-    || '<tr><td colspan="3" class="empty">No draws yet.</td></tr>';
+    return `<div class="lrow"><span class="rid">#${i}</span>`
+      + (drew ? `<span class="seal" id="v-${g}-${i}">✓</span>` + drumRow(r.draws) + keyChip(r.big_c)
+              : `<span class="dash">—</span>`) + `</div>`; }).join('')
+    || '<div class="empty">No draws yet.</div>';
   for (const i of ids) {
     const r = rollCache.get(key(i)); if (!r) continue;
     verifyRoll(g, i, r).then(ok => { const el = document.getElementById(`v-${g}-${i}`); if (!el || ok === null) return;
-      el.textContent = ok ? ' ✓' : ' ✗'; el.title = ok ? 'Every draw recomputed from get_roll_input in this browser' : 'A recomputed draw does not match!'; el.className = 'verify ' + (ok ? 'ok' : 'bad'); });
+      el.textContent = ok ? '✓' : '✗'; el.title = ok ? 'Every draw recomputed from get_roll_input in this browser' : 'A recomputed draw does not match!'; el.className = 'seal ' + (ok ? 'ok' : 'bad'); });
   }
 }
 
@@ -945,12 +1211,13 @@ function showBanner(r) {
   const won = r.payouts.find(p => p.player === accountId);
   const b = $('banner');
   b.className = 'banner show' + (won ? ' win' : '');
-  const what = r.draws.length > 1
-    ? `drew ${r.draws.length} numbers, ${label(r.draws[r.draws.length - 1])} last`
-    : `rolled ${label(r.draws[0])}`;
-  b.innerHTML = r.refunded ? `<b>Round ${r.round_id} timed out; bets were refunded.</b>`
-    : won ? `<b>Round ${r.round_id} ${what}. You won ${fmtNear(won.amount)}!</b>`
-    : `<b>Round ${r.round_id} ${what}.</b> ${r.payouts.length ? r.payouts.length + ' winner(s) took ' + fmtNear(r.pot) : 'Nobody hit it, ' + fmtNear(r.pot) + ' carries over.'}`;
+  b.innerHTML = `<div class="metas">` + meta('round', '#' + r.round_id)
+    + (r.refunded ? meta('timed out', 'refunded', 'warn')
+      : meta(r.draws.length > 1 ? 'filled on' : 'rolled', esc(label(r.draws[r.draws.length - 1])), 'gold')
+        + (won ? meta('you won', fmtNear(won.amount), 'win')
+          : r.payouts.length ? meta(r.payouts.length > 1 ? 'winners' : 'winner', `${r.payouts.length} · ${fmtNear(r.pot)}`)
+          : meta('nobody hit it', fmtNear(r.pot) + ' carries')))
+    + `</div>`;
   setTimeout(() => b.classList.remove('show'), 15000);
 }
 
@@ -994,7 +1261,7 @@ async function poll() {
     round = r; renderRound();
     if (last && (!lastResult || last.round_id !== lastResult.round_id)) {
       if (lastResult !== null || lastSeenRound !== null) showBanner(last);
-      lastResult = last; renderLast(last); rollCache.delete(`${g}:${last.round_id}`);
+      lastResult = last; renderLast(last); landWheel(last); rollCache.delete(`${g}:${last.round_id}`);
     } else if (!last) renderLast(null);
     if (lastSeenRound !== r.round_id) { lastSeenRound = r.round_id; await renderRolls(r.round_id); }
     failures = 0; $('state').classList.remove('offline');
