@@ -35,6 +35,7 @@
   .bar > div { height: 100%; background: linear-gradient(90deg, var(--gold-2), var(--gold)); width: 0; transition: width .4s; }
   .hint { color: var(--muted); font-size: 13px; }
   #balance { color: var(--gold); font-weight: 600; }
+  .verify.ok { color: var(--green); } .verify.bad { color: var(--red); }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
   th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
@@ -118,7 +119,7 @@
   <section class="card">
     <h2>Recent rolls</h2>
     <table><thead><tr><th>Round</th><th>Roll</th><th>big_c</th></tr></thead><tbody id="rolls"></tbody></table>
-    <div class="hint" style="margin-top:8px">Each roll is <span class="mono">sha256(big_c)[..8] as u64 LE % outcomes</span> (coin flip: 0 = Heads, 1 = Tails), where big_c is the MPC network's derived key for <span class="mono">(contract, path)</span> with path <span class="mono">round-N</span> for game 0 and <span class="mono">game-G-round-N</span> otherwise, pairing-verified on-chain before the casino sees it.</div>
+    <div class="hint" style="margin-top:8px">Each roll is <span class="mono">sha256(input)[..8] as u64 LE % outcomes</span> (coin flip: 0 = Heads, 1 = Tails), where <span class="mono">input</span> is the compact JSON of the round's public data (game, round, limits, pot, every bet) plus <span class="mono">big_c</span>, the MPC network's derived key for <span class="mono">(contract, path)</span> with path <span class="mono">round-N</span> for game 0 and <span class="mono">game-G-round-N</span> otherwise, pairing-verified on-chain before the casino sees it. The check mark means this page recomputed the roll from <span class="mono">get_roll_input</span>.</div>
   </section>
 </main>
 <div class="toast" id="toast"></div>
@@ -323,6 +324,23 @@ function renderLast(r) {
       + `<div class="hint mono" style="margin-top:8px">big_c ${r.big_c}</div>`;
 }
 
+// Recompute a roll from the contract's stored preimage, in the browser.
+const verified = new Map();
+async function verifyRoll(g, i, record) {
+  const key = `${g}:${i}`;
+  if (verified.has(key)) return verified.get(key);
+  try {
+    const input = await view('get_roll_input', { round_id: i, game_id: g });
+    if (!input) return null;
+    const bytes = new TextEncoder().encode(JSON.stringify(input));
+    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    let r = 0n; for (let k = 7; k >= 0; k--) r = (r << 8n) | BigInt(hash[k]);
+    const ok = Number(r % BigInt(input.outcomes)) === record.roll && input.big_c === record.big_c;
+    verified.set(key, ok);
+    return ok;
+  } catch (e) { return null; }
+}
+
 const rollCache = new Map();
 async function renderRolls(currentRound) {
   const g = gameId, key = i => `${g}:${i}`;
@@ -330,8 +348,13 @@ async function renderRolls(currentRound) {
   for (const i of ids.filter(i => !rollCache.has(key(i)))) rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g })); // sequential: bursts get rate-limited
   if (g !== gameId) return;
   $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i));
-    return `<tr><td>${i}</td><td class="num">${r ? label(r.roll) : '—'}</td><td class="mono">${r ? r.big_c : 'not recorded'}</td></tr>`; }).join('')
+    return `<tr><td>${i}</td><td class="num">${r ? label(r.roll) : '—'}<span class="verify" id="v-${g}-${i}"></span></td><td class="mono">${r ? r.big_c : 'not recorded'}</td></tr>`; }).join('')
     || '<tr><td colspan="3" class="empty">No rolls yet.</td></tr>';
+  for (const i of ids) {
+    const r = rollCache.get(key(i)); if (!r) continue;
+    verifyRoll(g, i, r).then(ok => { const el = document.getElementById(`v-${g}-${i}`); if (!el || ok === null) return;
+      el.textContent = ok ? ' ✓' : ' ✗'; el.title = ok ? 'Roll recomputed from get_roll_input in this browser' : 'Recomputed roll does not match!'; el.className = 'verify ' + (ok ? 'ok' : 'bad'); });
+  }
 }
 
 function showBanner(r) {
