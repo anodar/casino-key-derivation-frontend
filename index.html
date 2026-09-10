@@ -63,6 +63,22 @@
   .toast.err { border-color: var(--red); }
   a { color: var(--gold); }
   .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+  /* Account / contract tags: one pill per NEAR account, linking to the explorer.
+     The dot's hue is derived from the account id so the same player is
+     recognisable at a glance across the bet, winner and header rows. */
+  .tag { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--felt-2); color: var(--text);
+    font: 500 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; vertical-align: middle; }
+  a.tag:hover { border-color: var(--gold); }
+  .tag i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .tag em { font: 600 10px/1.6 system-ui, sans-serif; font-style: normal; text-transform: uppercase; letter-spacing: .7px;
+    padding: 0 5px; border-radius: 999px; background: rgba(0, 0, 0, .3); color: var(--muted); flex: none; }
+  .tag b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag.contract { border-color: var(--gold-2); color: var(--gold); }
+  .tag.contract em { background: var(--gold); color: #1b1b1b; }
+  .tag.you { border-color: var(--green); }
+  .tag.you em { background: var(--green); color: #10241a; }
+  .tag.off { border-style: dashed; color: var(--muted); }
   .tabs { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
   .tabs button { background: var(--card); border: 1px solid var(--line); color: var(--text); border-radius: 999px; padding: 8px 16px; cursor: pointer; font-weight: 600; }
   .tabs button.active { background: var(--gold); color: #1b1b1b; border-color: var(--gold); }
@@ -73,7 +89,7 @@
 <header>
   <h1>Crazy Spinner <small id="contract-id"></small></h1>
   <div class="row" id="wallet">
-    <span id="account" class="hint"></span>
+    <span id="account"></span>
     <span id="balance" class="hint" title="Balance at page load; refresh to update"></span>
     <button class="btn ghost" id="connect">Connect wallet</button>
   </div>
@@ -146,7 +162,6 @@ let gameId = params.has('game') ? Number(params.get('game')) : null;
 let games = [];
 
 const $ = id => document.getElementById(id);
-$('contract-id').textContent = CONTRACT;
 
 // ---- formatting ----
 const YOCTO = 10n ** 24n;
@@ -161,6 +176,20 @@ function toYocto(near) {
   return (BigInt(w || 0) * YOCTO + BigInt((f + '0'.repeat(24)).slice(0, 24))).toString();
 }
 const short = s => s.length > 28 ? s.slice(0, 14) + '…' + s.slice(-10) : s;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Stable per-account colour so the same player reads the same everywhere.
+const hue = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+const explorerAccount = id => `${EXPLORER}/address/${encodeURIComponent(id)}`;
+// One pill for a NEAR account: colour dot, id, and a role label ("you", "contract").
+function tag(id, { kind = '', role = '', text = null } = {}) {
+  const mine = id === accountId && !kind;
+  const cls = ['tag', kind, mine ? 'you' : ''].filter(Boolean).join(' ');
+  const label = role || (mine ? 'you' : '');
+  const dot = kind === 'contract' ? 'var(--gold)' : `hsl(${hue(id)} 58% 58%)`;
+  return `<a class="${cls}" href="${explorerAccount(id)}" target="_blank" rel="noopener" title="${esc(id)}">`
+    + `<i style="background:${dot}"></i><b>${esc(text || short(id))}</b>`
+    + (label ? `<em>${esc(label)}</em>` : '') + `</a>`;
+}
 const label = n => { const g = game(); return g && g.labels ? g.labels[n] : String(n); };
 
 // ---- RPC views ----
@@ -209,7 +238,9 @@ async function showBalance() {
   } catch (e) { /* leave blank */ }
 }
 function renderWallet() {
-  $('account').textContent = accountId || '';
+  $('account').innerHTML = accountId
+    ? tag(accountId, { role: 'you' })
+    : '<span class="tag off"><i style="background:var(--muted)"></i><b>not connected</b></span>';
   showBalance();
   $('connect').textContent = accountId ? 'Sign out' : 'Connect wallet';
   updateBetButton();
@@ -298,7 +329,7 @@ function renderRound() {
   const tb = $('bets'); tb.innerHTML = '';
   for (const b of round.bets) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${b.player === accountId ? '<b>you</b>' : short(b.player)}</td><td class="num">${label(b.number)}</td><td>${fmtNear(b.amount)}</td>`;
+    tr.innerHTML = `<td>${tag(b.player)}</td><td class="num">${label(b.number)}</td><td>${fmtNear(b.amount)}</td>`;
     tb.appendChild(tr);
   }
   $('bets-table').style.display = round.bets.length ? '' : 'none';
@@ -318,7 +349,7 @@ function renderLast(r) {
   const el = $('last');
   if (!r) { el.innerHTML = '<div class="empty">No round settled yet.</div>'; return; }
   const won = r.payouts.some(p => p.player === accountId);
-  const rows = r.payouts.map(p => `<tr><td>${p.player === accountId ? '<b>you</b>' : short(p.player)}</td><td>${fmtNear(p.amount)}</td></tr>`).join('');
+  const rows = r.payouts.map(p => `<tr><td>${tag(p.player)}</td><td>${fmtNear(p.amount)}</td></tr>`).join('');
   el.innerHTML = r.roll === null
     ? `<div class="roll">—<small>Round ${r.round_id}: the MPC request timed out, all ${fmtNear(r.pot)} refunded</small></div>`
     : `<div class="roll">${label(r.roll)}<small>Round ${r.round_id} · pot ${fmtNear(r.pot)} · ${r.payouts.length ? r.payouts.length + ' winner' + (r.payouts.length > 1 ? 's' : '') : 'no winner, pot carried over'}${won ? ' · you won!' : ''}</small></div>`
@@ -413,6 +444,8 @@ if (params.get('transactionHashes')) {
   history.replaceState({}, '', location.pathname);
 }
 
+$('contract-id').innerHTML = tag(CONTRACT, { kind: 'contract', role: 'contract', text: CONTRACT });
+renderWallet();
 poll();
 setInterval(poll, POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
