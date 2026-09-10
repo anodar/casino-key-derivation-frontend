@@ -54,11 +54,45 @@
   .grid.big button { aspect-ratio: 2 / 1; font-size: 22px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   input[type=number] { background: var(--felt-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 10px; font-size: 15px; width: 130px; }
-  .btn { background: var(--gold); color: #1b1b1b; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 700; font-size: 15px; cursor: pointer; }
+  .btn { background: var(--gold); color: #1b1b1b; border: 0; border-radius: 10px; padding: 0 18px; height: 42px; font-weight: 700; font-size: 15px; cursor: pointer; transition: background .15s, transform .06s; }
+  .btn:not(.ghost):hover:not(:disabled) { background: #ffd469; }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  .btn.ghost:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+  /* Amount: one pill holding the − / + steppers, the number and its unit, so the
+     row reads as a single control sitting next to the bet button. */
+  .amount { display: inline-flex; align-items: stretch; height: 42px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--felt-2); overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+  .amount:hover { border-color: #7a5ea6; }
+  .amount:focus-within { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(242, 193, 78, .16); }
+  .amount input[type=number] { width: 72px; height: auto; border: 0; border-radius: 0; padding: 0 4px 0 10px; background: transparent;
+    text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: textfield; }
+  .amount input[type=number]:focus { outline: none; }
+  /* The native spinners are tiny and off-theme; the ± buttons replace them. */
+  .amount input::-webkit-outer-spin-button, .amount input::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+  .amount .unit { display: flex; align-items: center; padding: 0 10px 0 0; color: var(--muted); font-size: 14px; }
+  .step { flex: none; width: 38px; border: 0; background: rgba(255, 255, 255, .05); color: var(--text);
+    font: 600 19px/1 system-ui, sans-serif; cursor: pointer; transition: background .12s, color .12s; }
+  .step:first-child { border-right: 1px solid var(--line); }
+  .step:last-child { border-left: 1px solid var(--line); }
+  .step:hover { background: var(--gold); color: #1b1b1b; }
+  .step:active { background: var(--gold-2); }
+  .step:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+  .amount-label { flex: none; }
   .roll { font-size: 72px; font-weight: 800; color: var(--gold); line-height: 1; text-align: center; margin: 6px 0 10px; }
   .roll small { display: block; font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 4px; }
+  /* Result spinner: the lobby wheel, big enough to label, spun clockwise and
+     left with the rolled slot under the pointer. */
+  .res-wheel { width: 100%; max-width: 248px; margin: 2px auto 0; }
+  .res-wheel svg { display: block; width: 100%; height: auto; }
+  .res-wheel .face { transform-origin: 100px 104px; transform: rotate(var(--spin)); }
+  .res-wheel.spin .face { animation: wheel-land 2.2s cubic-bezier(.2, .68, .25, 1) both; }
+  @keyframes wheel-land { from { transform: rotate(calc(var(--spin) - 1440deg)); } to { transform: rotate(var(--spin)); } }
+  .res-wheel.spin .win-ring { animation: win-ring .45s ease-out 2.1s both; }
+  @keyframes win-ring { from { opacity: 0; } to { opacity: 1; } }
+  .roll-cap { text-align: center; color: var(--muted); font-size: 13px; margin: 6px 0 12px; }
   .banner { grid-column: 1 / -1; background: linear-gradient(90deg, #2a4a1f, #1e3d2c); border: 1px solid var(--green); border-radius: 14px; padding: 16px 20px; display: none; }
   .banner.show { display: block; }
   .banner.win { border-color: var(--gold); background: linear-gradient(90deg, #4a3a10, #2b2a12); }
@@ -124,6 +158,7 @@
   @media (prefers-reduced-motion: reduce) {
     .game-card, .game-card:hover { transform: none; }
     .game-card:hover .coin, .game-card:hover .wheel, .game-card:hover .ball { animation: none; }
+    .res-wheel.spin .face, .res-wheel.spin .win-ring { animation: none; }
   }
 </style>
 </head>
@@ -175,8 +210,13 @@
     <div class="hint" id="rules"></div>
     <div class="grid" id="numbers"></div>
     <div class="row">
-      <label class="hint" for="amount">Amount (NEAR)</label>
-      <input type="number" id="amount" min="0" step="0.1">
+      <label class="hint amount-label" for="amount">Amount</label>
+      <div class="amount">
+        <button class="step" type="button" id="amount-down" aria-label="Lower the amount by one minimum bet">&minus;</button>
+        <input type="number" id="amount" min="0" step="0.1" inputmode="decimal" aria-label="Amount in NEAR">
+        <span class="unit" aria-hidden="true">Ⓝ</span>
+        <button class="step" type="button" id="amount-up" aria-label="Raise the amount by one minimum bet">+</button>
+      </div>
       <button class="btn" id="bet" disabled>Bet on –</button>
     </div>
     <div class="hint" id="bet-hint" style="margin-top:8px"></div>
@@ -315,15 +355,25 @@ const ball = (cx, cy, r, fill, fg, n, cls) =>
   + `<circle cx="${cx}" cy="${cy}" r="${r * .64}" fill="#fdfbf4" fill-opacity=".92"/>`
   + `<text x="${cx}" y="${cy + 1}" text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="${(r * .72).toFixed(0)}" font-weight="800" fill="${fg}">${n}</text></g>`;
 
+// The eight-slot wheel, shared by the lobby card art and the result spinner.
+// Slot i owns the arc from i*45 degrees clockwise from the top; its middle is
+// what the pointer has to end up over.
+const SLOTS = 8, SLICE = 360 / 8, SLOT_COLS = ['#f2c14e', '#7a4fb6', '#e05a5a', '#3ccf7a'];
+// Ink per slot colour: dark reads well on all of them except the purple.
+const SLOT_INK = ['#2a1748', '#f6f2ea', '#2a1748', '#2a1748'];
+const slotMid = i => i * SLICE + SLICE / 2;
+const onRim = (cx, cy, r, deg) => { const t = (deg - 90) * Math.PI / 180; return `${(cx + r * Math.cos(t)).toFixed(1)} ${(cy + r * Math.sin(t)).toFixed(1)}`; };
+const wedge = (cx, cy, r, i, attrs) =>
+  `<path d="M${cx} ${cy} L${onRim(cx, cy, r, i * SLICE)} A${r} ${r} 0 0 1 ${onRim(cx, cy, r, (i + 1) * SLICE)} Z" ${attrs}/>`;
+
 const wheelArt = (() => {
-  const cx = 100, cy = 64, r = 37, cols = ['#f2c14e', '#7a4fb6', '#e05a5a', '#3ccf7a'];
-  const p = deg => { const t = (deg - 90) * Math.PI / 180; return `${(cx + r * Math.cos(t)).toFixed(1)} ${(cy + r * Math.sin(t)).toFixed(1)}`; };
-  const slices = Array.from({ length: 8 }, (_, i) =>
-    `<path d="M${cx} ${cy} L${p(i * 45)} A${r} ${r} 0 0 1 ${p(i * 45 + 45)} Z" fill="${cols[i % 4]}" fill-opacity=".92"/>`).join('');
+  const cx = 100, cy = 64, r = 37;
+  const slices = Array.from({ length: SLOTS }, (_, i) =>
+    wedge(cx, cy, r, i, `fill="${SLOT_COLS[i % 4]}" fill-opacity=".92"`)).join('');
   return `<svg class="art" viewBox="0 0 200 120" aria-hidden="true"><g class="wheel">`
     + `<circle cx="${cx}" cy="${cy}" r="${r + 4}" fill="#2a1748"/>${slices}`
     + `<circle cx="${cx}" cy="${cy}" r="9" fill="#2a1748" stroke="#f2c14e" stroke-width="3"/></g>`
-    + `<path d="M100 13 l9 19 h-18 z" fill="#f2c14e"/></svg>`;
+    + `<path d="M91 11 h18 l-9 20 z" fill="#f2c14e"/></svg>`;
 })();
 
 const ART = {
@@ -489,7 +539,9 @@ function renderRound() {
   }
   $('bets-table').style.display = round.bets.length ? '' : 'none';
   $('no-bets').style.display = round.bets.length ? 'none' : '';
-  if (!$('amount').dataset.touched) $('amount').value = Number(BigInt(round.min_bet) * 10000n / YOCTO) / 10000;
+  const minNear = Number(BigInt(round.min_bet) * 10000n / YOCTO) / 10000;
+  $('amount').min = minNear; $('amount').step = minNear || 0.1; // the ± buttons move one minimum bet at a time
+  if (!$('amount').dataset.touched) $('amount').value = minNear;
   const counts = {}, mine = new Set();
   for (const b of round.bets) { counts[b.number] = (counts[b.number] || 0) + 1; if (b.player === accountId) mine.add(b.number); }
   [...grid.children].forEach((c, n) => {
@@ -499,17 +551,53 @@ function renderRound() {
   updateBetButton();
 }
 $('amount').oninput = () => { $('amount').dataset.touched = '1'; };
+// The ± buttons stand in for the native spinners: same steps, but visible and
+// on-theme. Rounded because 0.1 + 0.2 is not 0.3 in binary floating point.
+for (const [id, dir] of [['amount-down', -1], ['amount-up', 1]]) $(id).onclick = () => {
+  const el = $('amount'), step = Number(el.step) || 0.1;
+  el.value = String(Math.round(Math.max(Number(el.min) || 0, (Number(el.value) || 0) + dir * step) * 1e6) / 1e6);
+  el.dataset.touched = '1';
+};
+
+// Crazy Spinner's result, drawn instead of printed: the wheel spins clockwise
+// and settles with the rolled slot under the pointer, then the winning slot
+// lights up. The numbers ride the wheel, so the winner comes to rest upright.
+function spinnerWheel(roll) {
+  const cx = 100, cy = 104, r = 78;
+  const slices = Array.from({ length: SLOTS }, (_, i) =>
+    wedge(cx, cy, r, i, `fill="${SLOT_COLS[i % 4]}" fill-opacity="${i === roll ? 1 : .72}" stroke="#2a1748" stroke-width="1"`)).join('');
+  const nums = Array.from({ length: SLOTS }, (_, i) =>
+    `<text x="${cx}" y="${(cy - r * .66).toFixed(1)}" transform="rotate(${slotMid(i)} ${cx} ${cy})"`
+    + ` text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif"`
+    + ` font-size="${i === roll ? 22 : 17}" font-weight="800" fill="${SLOT_INK[i % 4]}" fill-opacity="${i === roll ? 1 : .7}"`
+    + `>${esc(label(i))}</text>`).join('');
+  return `<div class="res-wheel spin" style="--spin:${-slotMid(roll)}deg">`
+    + `<svg viewBox="0 0 200 200" role="img" aria-label="The spinner landed on ${esc(label(roll))}">`
+    + `<circle cx="${cx}" cy="${cy}" r="${r + 6}" fill="#2a1748"/>`
+    + `<g class="face">${slices}${nums}`
+    + wedge(cx, cy, r, roll, `class="win-ring" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"`)
+    + `</g>`
+    + `<circle cx="${cx}" cy="${cy}" r="15" fill="#2a1748" stroke="#f2c14e" stroke-width="3"/>`
+    + `<path d="M88 2 h24 l-12 28 z" fill="#f2c14e" stroke="#2a1748" stroke-width="1.5"/>`
+    + `</svg></div>`;
+}
 
 function renderLast(r) {
   const el = $('last');
   if (!r) { el.innerHTML = '<div class="empty">No round settled yet.</div>'; return; }
+  if (r.roll === null) {
+    el.innerHTML = `<div class="roll">—<small>Round ${r.round_id}: the MPC request timed out, all ${fmtNear(r.pot)} refunded</small></div>`;
+    return;
+  }
   const won = r.payouts.some(p => p.player === accountId);
   const rows = r.payouts.map(p => `<tr><td>${tag(p.player)}</td><td>${fmtNear(p.amount)}</td></tr>`).join('');
-  el.innerHTML = r.roll === null
-    ? `<div class="roll">—<small>Round ${r.round_id}: the MPC request timed out, all ${fmtNear(r.pot)} refunded</small></div>`
-    : `<div class="roll">${label(r.roll)}<small>Round ${r.round_id} · pot ${fmtNear(r.pot)} · ${r.payouts.length ? r.payouts.length + ' winner' + (r.payouts.length > 1 ? 's' : '') : 'no winner, pot carried over'}${won ? ' · you won!' : ''}</small></div>`
-      + (rows ? `<table><thead><tr><th>Winner</th><th>Payout</th></tr></thead><tbody>${rows}</tbody></table>` : '')
-      + `<div class="hint mono" style="margin-top:8px">big_c ${r.big_c}</div>`;
+  const cap = `Round ${r.round_id} · pot ${fmtNear(r.pot)} · ${r.payouts.length ? r.payouts.length + ' winner' + (r.payouts.length > 1 ? 's' : '') : 'no winner, pot carried over'}${won ? ' · you won!' : ''}`;
+  const g = game(); // the spinner draws its own result; the other games print the roll
+  el.innerHTML = (g && g.kind === 'CrazySpinner' && g.outcomes === SLOTS
+      ? spinnerWheel(r.roll) + `<div class="roll-cap">${cap}</div>`
+      : `<div class="roll">${label(r.roll)}<small>${cap}</small></div>`)
+    + (rows ? `<table><thead><tr><th>Winner</th><th>Payout</th></tr></thead><tbody>${rows}</tbody></table>` : '')
+    + `<div class="hint mono" style="margin-top:8px">big_c ${r.big_c}</div>`;
 }
 
 // Recompute a roll from the contract's stored preimage, in the browser.
