@@ -67,6 +67,33 @@
     font: 800 13px/1 system-ui, sans-serif; }
   .drum span.last { box-shadow: 0 0 0 2px var(--green), 0 0 12px rgba(60, 207, 122, .5); }
   .drum.big span { width: 38px; height: 38px; font-size: 15px; }
+  /* A bingo card in a row: its numbers as chips, the ones already out lit. */
+  .card-nums { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
+  .card-nums b { min-width: 23px; height: 23px; padding: 0 5px; border-radius: 6px; display: grid; place-items: center;
+    background: var(--felt-2); border: 1px solid var(--line); color: var(--text); font: 700 12px/1 system-ui, sans-serif; }
+  .card-nums b.hit { background: var(--gold); border-color: var(--gold); color: #1b1b1b; }
+  /* In the table a card is one column of four, so it keeps its numbers on one
+     line and lets the player pill ellipsis instead of wrapping six chips. */
+  #bets .card-nums { flex-wrap: nowrap; gap: 3px; }
+  #bets .card-nums b { min-width: 20px; height: 20px; padding: 0 3px; font-size: 11px; }
+  /* How full a card is: the number, plus a bar so the race reads at a glance. */
+  .hits { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .hits .pbar { width: 44px; height: 6px; border-radius: 999px; background: var(--felt-2); overflow: hidden; }
+  .hits .pbar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--gold-2), var(--gold)); }
+  .hits.full { color: var(--green); font-weight: 700; }
+  .hits.full .pbar > i { background: var(--green); }
+  tr.mine td { background: rgba(60, 207, 122, .07); }
+  /* Your own cards, called out above the table: bingo is mostly the question
+     "what am I still waiting on", which a row in a shared list buries. */
+  .mycard { background: var(--felt-2); border: 1px solid var(--line); border-left: 3px solid var(--green);
+    border-radius: 10px; padding: 10px 12px; margin-top: 12px; }
+  .mycard h3 { margin: 0 0 7px; font: 600 11px/1 system-ui, sans-serif; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .8px; }
+  .mycard .row { gap: 10px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .btn.mini { height: 32px; padding: 0 12px; font-size: 13px; }
+  .auto { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; cursor: pointer; user-select: none; }
+  .auto input { width: 16px; height: 16px; accent-color: var(--gold); }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   input[type=number] { background: var(--felt-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 9px 10px; font-size: 15px; width: 130px; }
   .btn { background: var(--gold); color: #1b1b1b; border: 0; border-radius: 10px; padding: 0 18px; height: 42px; font-weight: 700; font-size: 15px; cursor: pointer; transition: background .15s, transform .06s; }
@@ -292,10 +319,14 @@
     <div id="drum-wrap" hidden style="margin-top:12px">
       <div class="hint" id="draw-hint"></div>
       <div class="drum" id="drum"></div>
-      <button class="btn" id="draw" style="margin-top:8px" disabled>Draw the next number</button>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="draw" disabled>Draw the next number</button>
+        <label class="auto" id="auto-wrap" hidden><input type="checkbox" id="auto"> Keep drawing for me</label>
+      </div>
     </div>
+    <div id="my-cards"></div>
     <table id="bets-table" style="margin-top:12px">
-      <thead><tr><th>Player</th><th id="bets-col">Number</th><th>Bet</th></tr></thead>
+      <thead><tr><th>Player</th><th id="bets-col">Number</th><th id="hits-col" hidden>Hits</th><th>Bet</th></tr></thead>
       <tbody id="bets"></tbody>
     </table>
     <div class="empty" id="no-bets">No bets yet. Be the first.</div>
@@ -304,6 +335,11 @@
   <section class="card">
     <h2>Place your bet <span class="badge" id="game-name"></span></h2>
     <div class="hint" id="rules"></div>
+    <div class="toolbar" id="pick-tools" hidden>
+      <button class="btn ghost mini" type="button" id="quick">Quick pick</button>
+      <button class="btn ghost mini" type="button" id="clear">Clear</button>
+      <span class="hint" id="pick-count"></span>
+    </div>
     <div class="grid" id="numbers"></div>
     <div class="row">
       <label class="hint amount-label" for="amount">Amount</label>
@@ -565,6 +601,7 @@ function setUrl(id, push) {
 function go(id, push = true) {
   if (push && id === gameId) return;
   gameId = id; selected = []; round = null; lastResult = null; lastSeenRound = null;
+  $('auto').checked = false; // an opt-in for the round you were watching, not the next game
   $('banner').classList.remove('show');
   $('bets').innerHTML = ''; $('rolls').innerHTML = '';
   if (push) setUrl(id, true);
@@ -593,9 +630,8 @@ function buildGrid() {
     b.onclick = () => pick(i);
     grid.appendChild(b);
   }
-  // Rebuilding the board loses the classes but not the picks.
-  [...grid.children].forEach(c => c.classList.toggle('sel', selected.includes(+c.dataset.i)));
-  updateBetButton();
+  $('pick-tools').hidden = g.picks < 2; // one number needs no filling aids
+  syncPicks(); // rebuilding the board loses the classes but not the picks
 }
 
 // One number for a single-outcome game, `picks` of them for a bingo card;
@@ -606,23 +642,52 @@ function pick(i) {
   else if (picks === 1) selected = [i];
   else if (selected.length < picks) selected = [...selected, i];
   else return toast(`A card holds ${picks} numbers — take one off first.`, true);
+  syncPicks();
+}
+
+// Reflects `selected` onto the board. A card is kept in numeric order, so the
+// bet button and the card chips read the same way the board does.
+function syncPicks() {
+  const g = game();
+  if (g && g.picks > 1) selected.sort((a, b) => a - b);
   [...grid.children].forEach(c => c.classList.toggle('sel', selected.includes(+c.dataset.i)));
+  $('pick-count').textContent = g && g.picks > 1 ? `${selected.length} of ${g.picks} chosen` : '';
   updateBetButton();
 }
+
+// Filling a card of six by hand is tedious; quick pick draws one at random.
+$('quick').onclick = () => {
+  const g = game();
+  if (!g) return;
+  const pool = [...Array(g.outcomes).keys()];
+  selected = [];
+  while (selected.length < g.picks && pool.length) {
+    selected.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  syncPicks();
+};
+$('clear').onclick = () => { selected = []; syncPicks(); };
 
 // ---- betting ----
 let selected = [], round = null, lastSeenRound = null, lastResult = null, snapshot = null;
 const grid = $('numbers');
+// The contract takes one bet per player per round, so this is your whole stake
+// in it.
+const myBet = () => round && accountId ? round.bets.find(b => b.player === accountId) : null;
 function updateBetButton() {
   const btn = $('bet'), picks = game() ? game().picks : 1, ready = selected.length === picks;
-  btn.textContent = ready ? `Bet on ${selected.map(label).join(' ')}`
+  const cards = ns => ns.map(label).join(picks > 1 ? '·' : ' ');
+  const mine = myBet();
+  btn.textContent = mine ? 'You are in this round'
+    : ready ? `Bet on ${cards(selected)}`
     : picks > 1 ? `Pick ${picks - selected.length} more` : 'Bet on –';
   const open = round && round.state === 'Open';
-  btn.disabled = !(walletApi && accountId && ready && open);
+  btn.disabled = !(walletApi && accountId && ready && open && !mine);
   $('bet-hint').textContent = !round ? 'Loading round…'
     : !accountId ? 'Connect a testnet wallet to bet.'
     : !open ? (round.state === 'Drawing' ? 'The drum is still turning; bets reopen once the round settles.'
       : 'Round is settling, bets reopen in a moment.')
+    : mine ? `Your ${picks > 1 ? 'card' : 'pick'}: ${cards(mine.numbers)} for ${fmtNear(mine.amount)}. One bet per player per round — bet again once this round settles.`
     : `${picks > 1 ? `Pick ${picks} numbers. ` : ''}Minimum bet ${fmtNear(round.min_bet)}. You will be redirected to the wallet to approve.`;
 }
 $('bet').onclick = async () => {
@@ -644,7 +709,36 @@ $('draw').onclick = async () => {
   } catch (e) { toast(e.message || String(e), true); }
 };
 
+// Opt-in: a bingo round needs one transaction per number, so a player can hand
+// the clicking over. One request in flight at a time, and anything the wallet
+// refuses switches it back off rather than retrying on the next tick.
+let drawing = false;
+async function autoDraw() {
+  if (drawing || !$('auto').checked || !walletApi || !accountId) return;
+  if (!round || round.state !== 'Drawing') return;
+  drawing = true;
+  renderDrum();
+  try {
+    await walletApi.draw(gameId);
+    poll();
+  } catch (e) {
+    $('auto').checked = false;
+    toast(e.message || String(e), true);
+  } finally {
+    drawing = false;
+  }
+}
+$('auto').onchange = () => autoDraw();
+
 // ---- rendering ----
+// A bingo card: its numbers in order, the ones already out of the drum lit.
+const cardNums = (numbers, out, picks) => picks < 2
+  ? esc(numbers.map(label).join(' '))
+  : `<span class="card-nums">` + [...numbers].sort((a, b) => a - b)
+      .map(n => `<b class="${out.has(n) ? 'hit' : ''}">${esc(label(n))}</b>`).join('') + `</span>`;
+const hitBar = (hits, picks) => `<span class="hits${hits === picks ? ' full' : ''}">`
+  + `<span class="pbar"><i style="width:${hits * 100 / picks}%"></i></span>${hits}/${picks}</span>`;
+
 function renderRound() {
   $('round-id').textContent = round.round_id;
   const st = $('state'); st.textContent = round.state; st.className = 'badge ' + round.state;
@@ -656,11 +750,19 @@ function renderRound() {
   $('progress').textContent = `${fmtNear(round.total_bets)} of ${fmtNear(round.threshold)} needed to roll (${pct}%)`;
   if (snapshot) $('cut').textContent = `Casino keeps ${snapshot.cut_bps / 100}% of each winner's profit · ${fmtNear(snapshot.house_gains)} so far`;
   const picks = game() ? game().picks : 1;
+  const out = new Set(round.drawn);
   $('bets-col').textContent = picks > 1 ? 'Card' : 'Number';
+  $('hits-col').hidden = picks < 2;
+  const rows = round.bets.map((b, i) => ({ b, i, hits: b.numbers.filter(n => out.has(n)).length }));
+  // Once numbers are out the table is a race, so the fullest card leads it.
+  if (picks > 1 && out.size) rows.sort((x, y) => y.hits - x.hits || x.i - y.i);
   const tb = $('bets'); tb.innerHTML = '';
-  for (const b of round.bets) {
+  for (const { b, hits } of rows) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${tag(b.player)}</td><td class="num">${b.numbers.map(label).join(' ')}</td><td>${fmtNear(b.amount)}</td>`;
+    if (b.player === accountId) tr.className = 'mine';
+    tr.innerHTML = `<td>${tag(b.player)}</td><td class="num">${cardNums(b.numbers, out, picks)}</td>`
+      + (picks > 1 ? `<td>${hitBar(hits, picks)}</td>` : '')
+      + `<td>${fmtNear(b.amount)}</td>`;
     tb.appendChild(tr);
   }
   $('bets-table').style.display = round.bets.length ? '' : 'none';
@@ -673,27 +775,47 @@ function renderRound() {
     counts[n] = (counts[n] || 0) + 1;
     if (b.player === accountId) mine.add(n);
   }
-  const out = new Set(round.drawn);
   [...grid.children].forEach((c, n) => {
     c.classList.toggle('taken', !!counts[n]); c.dataset.n = counts[n] || '';
     c.classList.toggle('mine', mine.has(n));
     c.classList.toggle('out', out.has(n));
   });
+  renderMyCards(out, picks);
   renderDrum();
   updateBetButton();
+}
+
+// Your own card and what is left to come: the one thing a bingo player watches,
+// and a row in the shared table is the wrong place to read it from.
+function renderMyCards(out, picks) {
+  const el = $('my-cards'), b = myBet(), g = game();
+  if (picks < 2 || !b) { el.innerHTML = ''; return; }
+  const need = b.numbers.filter(n => !out.has(n)).sort((x, y) => x - y);
+  const left = (g ? g.outcomes : 0) - out.size;
+  el.innerHTML = `<div class="mycard"><h3>Your card · ${fmtNear(b.amount)}</h3>`
+    + `<div class="row">${cardNums(b.numbers, out, picks)}${hitBar(picks - need.length, picks)}</div>`
+    + `<div class="hint" style="margin-top:7px">` + (need.length
+      ? `Waiting on ${need.map(label).join(', ')}`
+        + (out.size ? ` · ${need.length} of the ${left} still in the drum` : '')
+      : 'Full card — this one wins.') + `</div></div>`;
 }
 
 // A round that draws more than once parks in Drawing between numbers: show
 // what is out and let anyone ask for the next one.
 function renderDrum() {
   const mid = round.drawn.length > 0 || round.state === 'Drawing';
+  const g = game(), multi = !!g && g.picks > 1;
   $('drum-wrap').hidden = !mid;
+  $('auto-wrap').hidden = !multi; // only a multi-draw round has more clicking to hand over
   if (!mid) return;
   $('drum').innerHTML = round.drawn.map((n, i) =>
     `<span class="${i === round.drawn.length - 1 ? 'last' : ''}">${esc(label(n))}</span>`).join('');
   const waiting = round.state === 'Drawing';
-  $('draw').disabled = !(walletApi && accountId && waiting);
-  $('draw-hint').textContent = `${round.drawn.length} of ${game() ? game().outcomes : '?'} out of the drum · `
+  $('draw').disabled = !(walletApi && accountId && waiting) || drawing;
+  $('draw').textContent = drawing ? 'Asking for a number…' : 'Draw the next number';
+  const left = (g ? g.outcomes : 0) - round.drawn.length;
+  $('draw-hint').textContent = `${round.drawn.length} out`
+    + (g ? `, ${left} still in the drum` : '') + ' · '
     + (waiting ? (accountId ? 'anyone can ask for the next number' : 'connect a wallet to turn the drum')
       : 'the MPC network is deriving the next key…');
 }
@@ -769,8 +891,11 @@ function coinFlip(roll) {
 // Bingo's result: the numbers in the order they came out, the one that filled
 // a card ringed.
 function bingoDrum(draws) {
-  return `<div class="drum big">` + draws.map((n, i) =>
-    `<span class="${i === draws.length - 1 ? 'last' : ''}">${esc(label(n))}</span>`).join('') + `</div>`;
+  return `<div class="drum big">` + draws.map((n, i) => {
+    const last = i === draws.length - 1;
+    return `<span class="${last ? 'last' : ''}"${last ? ' title="The number that filled a card"' : ''}>`
+      + `${esc(label(n))}</span>`;
+  }).join('') + `</div>`;
 }
 
 function renderLast(r) {
@@ -786,7 +911,7 @@ function renderLast(r) {
   const g = game(); // bingo, the spinner and the coin draw their result; the rest print it
   const roll = r.draws[0];
   el.innerHTML = (g && g.picks > 1
-      ? bingoDrum(r.draws) + `<div class="roll-cap">${cap} · ${r.draws.length} draws</div>`
+      ? bingoDrum(r.draws) + `<div class="roll-cap">${cap} · ${r.draws.length} of ${g.outcomes} numbers drawn</div>`
     : g && g.kind === 'CrazySpinner' && g.outcomes === SLOTS
       ? spinnerWheel(roll) + `<div class="roll-cap">${cap}</div>`
     : g && g.kind === 'CoinFlip' && g.outcomes === 2
@@ -829,7 +954,7 @@ async function renderRolls(currentRound) {
   for (const i of ids.filter(i => !rollCache.has(key(i)))) rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g })); // sequential: bursts get rate-limited
   if (g !== gameId) return;
   $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i)); const drew = r && r.draws.length;
-    return `<tr><td>${i}</td><td class="num">${drew ? r.draws.map(label).join(' ') : '—'}<span class="verify" id="v-${g}-${i}"></span></td><td class="mono">${drew ? r.big_cs[r.big_cs.length - 1] : 'not recorded'}</td></tr>`; }).join('')
+    return `<tr><td>${i}</td><td class="num">${drew ? r.draws.map(label).join(r.draws.length > 1 ? ' · ' : ' ') : '—'}<span class="verify" id="v-${g}-${i}"></span></td><td class="mono">${drew ? r.big_cs[r.big_cs.length - 1] : 'not recorded'}</td></tr>`; }).join('')
     || '<tr><td colspan="3" class="empty">No draws yet.</td></tr>';
   for (const i of ids) {
     const r = rollCache.get(key(i)); if (!r) continue;
@@ -871,7 +996,7 @@ async function poll() {
     snapshot = snap; setGames(snap.games);
     if (inLobby()) { failures = 0; skip = 0; return; } // setGames redrew the cards if anything moved
     const r = snap.round, last = snap.last_round;
-    round = r; renderRound();
+    round = r; renderRound(); autoDraw();
     if (last && (!lastResult || last.round_id !== lastResult.round_id)) {
       if (lastResult !== null || lastSeenRound !== null) showBanner(last);
       lastResult = last; renderLast(last); rollCache.delete(`${g}:${last.round_id}`);
