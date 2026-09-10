@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Casino Key Derivation</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@near-wallet-selector/modal-ui-js@10.1.4/styles.css">
 <style>
   :root {
     --bg: #0b1f16; --felt: #123b2a; --felt-2: #0f3324; --card: #16271f; --line: #2a4a3b;
@@ -122,7 +123,6 @@
 </main>
 <div class="toast" id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/near-api-js@2.1.4/dist/near-api-js.min.js"></script>
 <script>
 const params = new URLSearchParams(location.search);
 const CONTRACT = params.get('contract') || 'casino_key_derivation.testnet';
@@ -134,7 +134,6 @@ const RPCS = params.get('rpc') ? [params.get('rpc')] : [
 ];
 let rpcIndex = 0;
 const RPC = RPCS[0];
-const WALLET = 'https://testnet.mynearwallet.com';
 const EXPLORER = 'https://testnet.nearblocks.io';
 const GAS = '250000000000000';
 const POLL_MS = 5000;
@@ -184,15 +183,11 @@ async function view(method, args = {}) {
   throw lastErr;
 }
 
-// ---- wallet ----
-let wallet = null, accountId = null;
-async function initWallet() {
-  if (typeof nearApi === 'undefined') { $('connect').textContent = 'Wallet library failed to load'; $('connect').disabled = true; return; }
-  const near = await nearApi.connect({ networkId: 'testnet', nodeUrl: RPC, walletUrl: WALLET,
-    helperUrl: 'https://helper.testnet.near.org', keyStore: new nearApi.keyStores.BrowserLocalStorageKeyStore() });
-  wallet = new nearApi.WalletConnection(near, 'casino');
-  // Sign-in completes asynchronously after the wallet redirect; the sync check is false then.
-  accountId = (await wallet.isSignedInAsync()) ? wallet.getAccountId() : null;
+// ---- wallet (driven by the wallet-selector module script below) ----
+let walletApi = null, accountId = null;
+function setAccount(id) {
+  if (id === accountId) return updateBetButton();
+  accountId = id;
   renderWallet();
 }
 // Read once per page load (not on the poll timer): the balance is a
@@ -215,9 +210,8 @@ function renderWallet() {
   updateBetButton();
 }
 $('connect').onclick = () => {
-  if (!wallet) return;
-  if (accountId) { wallet.signOut(); accountId = null; renderWallet(); }
-  else wallet.requestSignIn({ contractId: CONTRACT, methodNames: ['place_bet'] });
+  if (!walletApi) return;
+  (accountId ? walletApi.signOut() : walletApi.show()).catch(e => toast(e.message || String(e), true));
 };
 
 // ---- games ----
@@ -266,7 +260,7 @@ function updateBetButton() {
   const btn = $('bet');
   btn.textContent = selected === null ? 'Bet on –' : `Bet on ${label(selected)}`;
   const open = round && round.state === 'Open';
-  btn.disabled = !(wallet && accountId && selected !== null && open);
+  btn.disabled = !(walletApi && accountId && selected !== null && open);
   $('bet-hint').textContent = !round ? 'Loading round…'
     : !accountId ? 'Connect a testnet wallet to bet.'
     : !open ? 'Round is settling, bets reopen in a moment.'
@@ -276,8 +270,10 @@ $('bet').onclick = async () => {
   const amount = $('amount').value;
   if (round && BigInt(toYocto(amount)) < BigInt(round.min_bet)) return toast(`Minimum bet is ${fmtNear(round.min_bet)}`, true);
   try {
-    await wallet.account().functionCall({ contractId: CONTRACT, methodName: 'place_bet',
-      args: { number: selected, game_id: gameId }, gas: GAS, attachedDeposit: toYocto(amount) });
+    // Redirect wallets (MyNearWallet) navigate away here and return with ?transactionHashes;
+    // popup wallets (Meteor) resolve in place.
+    const outcome = await walletApi.bet(selected, gameId, toYocto(amount));
+    if (outcome) { toast('Bet placed.'); showBalance(); poll(); }
   } catch (e) { toast(e.message || String(e), true); }
 };
 
@@ -385,10 +381,42 @@ if (params.get('transactionHashes')) {
   history.replaceState({}, '', location.pathname);
 }
 
-initWallet().catch(e => toast('Wallet init failed: ' + e.message, true));
 poll();
 setInterval(poll, POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+</script>
+<script>
+  // js-sha256 (a selector dependency) mistakes esm.sh's process shim for Node and calls require().
+  window.JS_SHA256_NO_NODE_JS = true; window.JS_SHA256_NO_COMMON_JS = true;
+</script>
+<script type="module">
+import { setupWalletSelector } from 'https://esm.sh/@near-wallet-selector/core@10.1.4';
+import { setupModal } from 'https://esm.sh/@near-wallet-selector/modal-ui-js@10.1.4';
+import { setupMyNearWallet } from 'https://esm.sh/@near-wallet-selector/my-near-wallet@10.1.4';
+import { setupMeteorWallet } from 'https://esm.sh/@near-wallet-selector/meteor-wallet@10.1.4';
+
+try {
+  const selector = await setupWalletSelector({
+    network: { networkId: 'testnet', nodeUrl: RPCS[0], helperUrl: 'https://helper.testnet.near.org',
+      explorerUrl: EXPLORER, indexerUrl: 'https://testnet-api.kitwallet.app' },
+    modules: [setupMyNearWallet(), setupMeteorWallet()],
+  });
+  const modal = setupModal(selector, { contractId: CONTRACT, methodNames: ['place_bet'] });
+  const sync = state => setAccount((state.accounts.find(a => a.active) || {}).accountId || null);
+  walletApi = {
+    show: async () => modal.show(),
+    signOut: async () => (await selector.wallet()).signOut(),
+    bet: async (number, game_id, deposit) => (await selector.wallet()).signAndSendTransaction({
+      receiverId: CONTRACT,
+      actions: [{ type: 'FunctionCall', params: { methodName: 'place_bet', args: { number, game_id }, gas: GAS, deposit } }],
+    }),
+  };
+  sync(selector.store.getState());
+  selector.store.observable.subscribe(sync);
+} catch (e) {
+  toast('Wallet selector failed to load: ' + e.message, true);
+  $('connect').disabled = true;
+}
 </script>
 </body>
 </html>
