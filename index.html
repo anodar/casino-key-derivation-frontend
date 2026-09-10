@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Casino Key Derivation</title>
+<title>Crazy Spinner</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@near-wallet-selector/modal-ui-js@8.10.2/styles.css">
 <style>
   :root {
@@ -71,7 +71,7 @@
 </head>
 <body>
 <header>
-  <h1>Casino Key Derivation <small id="contract-id"></small></h1>
+  <h1>Crazy Spinner <small id="contract-id"></small></h1>
   <div class="row" id="wallet">
     <span id="account" class="hint"></span>
     <span id="balance" class="hint" title="Balance at page load; refresh to update"></span>
@@ -92,6 +92,7 @@
     </div>
     <div class="bar"><div id="bar"></div></div>
     <div class="hint" id="progress"></div>
+    <div class="hint" id="cut"></div>
     <table id="bets-table" style="margin-top:12px">
       <thead><tr><th>Player</th><th>Number</th><th>Bet</th></tr></thead>
       <tbody id="bets"></tbody>
@@ -260,7 +261,7 @@ function buildGrid() {
 }
 
 // ---- betting ----
-let selected = null, round = null, lastSeenRound = null, lastResult = null;
+let selected = null, round = null, lastSeenRound = null, lastResult = null, snapshot = null;
 const grid = $('numbers');
 function updateBetButton() {
   const btn = $('bet');
@@ -293,6 +294,7 @@ function renderRound() {
   const pct = Math.min(100, Number(BigInt(round.total_bets) * 100n / BigInt(round.threshold)));
   $('bar').style.width = pct + '%';
   $('progress').textContent = `${fmtNear(round.total_bets)} of ${fmtNear(round.threshold)} needed to roll (${pct}%)`;
+  if (snapshot) $('cut').textContent = `Casino keeps ${snapshot.cut_bps / 100}% of each winner's profit · ${fmtNear(snapshot.house_gains)} so far`;
   const tb = $('bets'); tb.innerHTML = '';
   for (const b of round.bets) {
     const tr = document.createElement('tr');
@@ -383,7 +385,7 @@ async function poll() {
     // One call per tick: games + round + last result.
     const snap = await view('get_snapshot', g === null ? {} : { game_id: g });
     if (g !== null && g !== gameId) return;
-    setGames(snap.games);
+    snapshot = snap; setGames(snap.games);
     const r = snap.round, last = snap.last_round;
     round = r; renderRound();
     if (last && (!lastResult || last.round_id !== lastResult.round_id)) {
