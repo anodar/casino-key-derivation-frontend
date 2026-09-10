@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Crazy Spinner</title>
+<title>Casino Key Derivation</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@near-wallet-selector/modal-ui-js@8.10.2/styles.css">
 <style>
   :root {
@@ -11,12 +11,16 @@
     --text: #e8f1ec; --muted: #9db8aa; --gold: #f2c14e; --gold-2: #d4a72c; --red: #e05a5a; --green: #3ccf7a;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; } /* #game sets display:grid, which would beat the attribute */
   body { margin: 0; background: radial-gradient(1200px 600px at 50% -10%, var(--felt) 0%, var(--bg) 70%); color: var(--text); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   h1 { margin: 0; font-size: 22px; letter-spacing: .5px; }
   h1 small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
-  main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .home-btn { flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; }
+  .home-btn:hover { border-color: var(--gold); color: var(--gold); }
+  #game { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 860px) { #game { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
   .card h2 { margin: 0 0 12px; font-size: 16px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; justify-content: space-between; }
   .wide { grid-column: 1 / -1; }
@@ -79,15 +83,56 @@
   .tag.you { border-color: var(--green); }
   .tag.you em { background: var(--green); color: #10241a; }
   .tag.off { border-style: dashed; color: var(--muted); }
-  .tabs { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
-  .tabs button { background: var(--card); border: 1px solid var(--line); color: var(--text); border-radius: 999px; padding: 8px 16px; cursor: pointer; font-weight: 600; }
-  .tabs button.active { background: var(--gold); color: #1b1b1b; border-color: var(--gold); }
-  .tabs button small { font-weight: 400; color: inherit; opacity: .75; margin-left: 6px; }
+  /* ---- lobby ---- */
+  #lobby { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+  .hero h2 { margin: 0 0 6px; font-size: 26px; letter-spacing: .3px; }
+  .hero p { margin: 0; color: var(--muted); max-width: 64ch; }
+  .hero-stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 22px; }
+  .hero-stats span { font-size: 12px; color: var(--muted); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; }
+  .hero-stats b { color: var(--gold); font-weight: 700; }
+  .game-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); }
+  .game-card { display: flex; flex-direction: column; padding: 0; overflow: hidden; text-align: left; font: inherit; cursor: pointer;
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px; color: var(--text);
+    transition: transform .15s, border-color .15s, box-shadow .15s; }
+  .game-card:hover, .game-card:focus-visible { transform: translateY(-3px); border-color: var(--gold); box-shadow: 0 12px 28px rgba(0, 0, 0, .35); outline: none; }
+  .art-wrap { height: 132px; border-bottom: 1px solid var(--line); background: radial-gradient(120% 100% at 50% 0%, var(--felt) 0%, var(--felt-2) 72%); }
+  .art { display: block; width: 100%; height: 100%; }
+  .gc-body { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px; }
+  .gc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .gc-top h3 { margin: 0; font-size: 17px; }
+  .chip { font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+  .chip.feat { color: var(--gold); border-color: var(--gold-2); }
+  .gc-rules { flex: 1; margin: 0; font-size: 13px; color: var(--muted); }
+  .gc-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+  .gc-meta div { background: var(--felt-2); border-radius: 8px; padding: 7px 9px; }
+  .gc-meta dt { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; }
+  .gc-meta dd { margin: 2px 0 0; font-size: 13px; font-weight: 700; }
+  .gc-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .gc-play { font-size: 13px; font-weight: 700; color: var(--gold); }
+  .game-card:hover .gc-play { text-decoration: underline; }
+  /* Card art: each game gets its own idle-still, hover-animated illustration. */
+  .coin, .ball { transform-box: fill-box; transform-origin: center; }
+  .game-card:hover .coin { animation: coinflip 1s ease-in-out; }
+  @keyframes coinflip { 50% { transform: scaleX(.08); } }
+  .wheel { transform-origin: 100px 64px; }
+  .game-card:hover .wheel { animation: wheelspin 1.5s cubic-bezier(.15, .75, .2, 1); }
+  @keyframes wheelspin { to { transform: rotate(540deg); } }
+  .game-card:hover .ball { animation: bob .9s ease-in-out; }
+  .game-card:hover .b2 { animation-delay: .08s; }
+  .game-card:hover .b3 { animation-delay: .16s; }
+  @keyframes bob { 50% { transform: translateY(-9px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .game-card, .game-card:hover { transform: none; }
+    .game-card:hover .coin, .game-card:hover .wheel, .game-card:hover .ball { animation: none; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>Crazy Spinner <small id="contract-id"></small></h1>
+  <div class="brand">
+    <button class="home-btn" id="home" title="Back to the lobby" aria-label="Back to the lobby" hidden>←</button>
+    <h1><span id="title-text">Casino Key Derivation</span> <small id="contract-id"></small></h1>
+  </div>
   <div class="row" id="wallet">
     <span id="account"></span>
     <span id="balance" class="hint" title="Balance at page load; refresh to update"></span>
@@ -95,8 +140,17 @@
   </div>
 </header>
 
-<main>
-  <div class="tabs" id="tabs"></div>
+<main id="lobby">
+  <section class="hero">
+    <h2>Choose your game</h2>
+    <p>Every round is rolled from the MPC network's derived key for this contract — pairing-verified
+      on-chain before the casino sees it, and recomputable in your browser from the round's public data.</p>
+    <div class="hero-stats" id="house"></div>
+  </section>
+  <div class="game-grid" id="game-grid"><div class="empty">Loading games…</div></div>
+</main>
+
+<main id="game" hidden>
   <div class="banner" id="banner"></div>
 
   <section class="card">
@@ -158,6 +212,8 @@ const RPC = RPCS[0];
 const EXPLORER = 'https://testnet.nearblocks.io';
 const GAS = '250000000000000';
 const POLL_MS = 8000;
+const BRAND = 'Casino Key Derivation';
+// null = the lobby; a number = that game's table.
 let gameId = params.has('game') ? Number(params.get('game')) : null;
 let games = [];
 
@@ -250,33 +306,132 @@ $('connect').onclick = () => {
   (accountId ? walletApi.signOut() : walletApi.show()).catch(e => toast(e.message || String(e), true));
 };
 
+// ---- card art ----
+// Inline SVG rather than image files: the page is a single static file and the
+// art has to survive being served from anywhere.
+const ball = (cx, cy, r, fill, fg, n, cls) =>
+  `<g class="ball ${cls}"><circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>`
+  + `<ellipse cx="${cx - r * .48}" cy="${cy - r * .52}" rx="${r * .3}" ry="${r * .17}" fill="#fff" fill-opacity=".45" transform="rotate(-35 ${cx - r * .48} ${cy - r * .52})"/>`
+  + `<circle cx="${cx}" cy="${cy}" r="${r * .64}" fill="#fdfbf4" fill-opacity=".92"/>`
+  + `<text x="${cx}" y="${cy + 1}" text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="${(r * .72).toFixed(0)}" font-weight="800" fill="${fg}">${n}</text></g>`;
+
+const wheelArt = (() => {
+  const cx = 100, cy = 64, r = 37, cols = ['#f2c14e', '#7a4fb6', '#e05a5a', '#3ccf7a'];
+  const p = deg => { const t = (deg - 90) * Math.PI / 180; return `${(cx + r * Math.cos(t)).toFixed(1)} ${(cy + r * Math.sin(t)).toFixed(1)}`; };
+  const slices = Array.from({ length: 8 }, (_, i) =>
+    `<path d="M${cx} ${cy} L${p(i * 45)} A${r} ${r} 0 0 1 ${p(i * 45 + 45)} Z" fill="${cols[i % 4]}" fill-opacity=".92"/>`).join('');
+  return `<svg class="art" viewBox="0 0 200 120" aria-hidden="true"><g class="wheel">`
+    + `<circle cx="${cx}" cy="${cy}" r="${r + 4}" fill="#2a1748"/>${slices}`
+    + `<circle cx="${cx}" cy="${cy}" r="9" fill="#2a1748" stroke="#f2c14e" stroke-width="3"/></g>`
+    + `<path d="M100 13 l9 19 h-18 z" fill="#f2c14e"/></svg>`;
+})();
+
+const ART = {
+  CoinFlip: `<svg class="art" viewBox="0 0 200 120" aria-hidden="true">
+    <defs><linearGradient id="art-coin" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe6a3"/><stop offset="1" stop-color="#c8951c"/></linearGradient></defs>
+    <g fill="none" stroke="#f2c14e" stroke-width="2" stroke-linecap="round" opacity=".4">
+      <path d="M66 88a38 30 0 0 1 68 0" stroke-dasharray="3 8"/>
+      <path d="M50 99a56 42 0 0 1 100 0" stroke-dasharray="3 10" opacity=".55"/>
+    </g>
+    <g class="coin">
+      <circle cx="100" cy="54" r="33" fill="url(#art-coin)"/>
+      <circle cx="100" cy="54" r="26" fill="none" stroke="#8a6512" stroke-opacity=".5" stroke-width="2"/>
+      <text x="100" y="55" text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="30" font-weight="800" fill="#7a5a0d">N</text>
+    </g></svg>`,
+  CrazySpinner: wheelArt,
+  PickNumber: `<svg class="art" viewBox="0 0 200 120" aria-hidden="true">
+    ${ball(58, 78, 21, '#8f7ec4', '#2a1748', 7, 'b1')}
+    ${ball(142, 78, 21, '#e05a5a', '#4a1414', 99, 'b3')}
+    ${ball(100, 50, 26, '#f2c14e', '#5c4306', 42, 'b2')}</svg>`,
+  _: `<svg class="art" viewBox="0 0 200 120" aria-hidden="true"><g class="ball b1">
+    <rect x="68" y="28" width="64" height="64" rx="15" fill="#f4f1e8"/>
+    <g fill="#3b2262"><circle cx="86" cy="46" r="6"/><circle cx="114" cy="46" r="6"/><circle cx="100" cy="60" r="6"/><circle cx="86" cy="74" r="6"/><circle cx="114" cy="74" r="6"/></g></g></svg>`,
+};
+
 // ---- games ----
 const game = () => games.find(g => g.game_id === gameId);
+const inLobby = () => gameId === null;
+
 function setGames(list) {
-  const changed = JSON.stringify(list.map(g => [g.game_id, g.round_id, g.state])) !== JSON.stringify(games.map(g => [g.game_id, g.round_id, g.state]));
+  const key = l => JSON.stringify(l.map(g => [g.game_id, g.round_id, g.state, g.min_bet, g.threshold]));
+  const changed = key(list) !== key(games);
   games = list;
-  if (!game()) gameId = (games.find(g => g.default) || games[0]).game_id;
-  if (changed) renderTabs();
+  if (!inLobby() && !game()) gameId = null; // ?game= points at a game this contract does not have
+  if (inLobby()) { if (changed) renderLobby(); return; }
+  renderGameHeader();
   if (!grid.children.length || +grid.dataset.game !== gameId) buildGrid();
 }
-function renderTabs() {
-  $('tabs').innerHTML = '';
-  for (const g of games) {
-    const b = document.createElement('button');
-    b.className = g.game_id === gameId ? 'active' : '';
-    b.innerHTML = `${g.name}<small>${g.outcomes} outcomes</small>`;
-    b.onclick = () => switchGame(g.game_id);
-    $('tabs').appendChild(b);
-  }
-  $('game-name').textContent = game().name;
-  $('rules').textContent = game().rules;
+
+function renderLobby() {
+  const el = $('game-grid');
+  el.innerHTML = games.map(g => `
+    <button class="game-card" data-game="${g.game_id}">
+      <div class="art-wrap">${ART[g.kind] || ART._}</div>
+      <div class="gc-body">
+        <div class="gc-top"><h3>${esc(g.name)}</h3><span class="chip">${g.outcomes} outcomes</span>${g.default ? '<span class="chip feat">Featured</span>' : ''}</div>
+        <p class="gc-rules">${esc(g.rules)}</p>
+        <dl class="gc-meta">
+          <div><dt>Round</dt><dd>#${g.round_id}</dd></div>
+          <div><dt>Min bet</dt><dd>${fmtNear(g.min_bet)}</dd></div>
+          <div><dt>Rolls at</dt><dd>${fmtNear(g.threshold)}</dd></div>
+        </dl>
+        <div class="gc-foot"><span class="badge ${g.state}">${g.state}</span><span class="gc-play">Play →</span></div>
+      </div>
+    </button>`).join('')
+    || `<div class="empty">${snapshot ? 'This contract has no games registered.' : 'Loading games…'}</div>`;
+  for (const b of el.querySelectorAll('.game-card')) b.onclick = () => go(Number(b.dataset.game));
+  if (snapshot) $('house').innerHTML = `<span><b>${games.length}</b> games live</span>`
+    + `<span>House keeps <b>${snapshot.cut_bps / 100}%</b> of each winner's profit</span>`
+    + `<span>Collected so far <b>${fmtNear(snapshot.house_gains)}</b></span>`;
 }
-function switchGame(id) {
+
+function renderGameHeader() {
+  const g = game();
+  $('title-text').textContent = g ? g.name : BRAND;
+  document.title = g ? `${g.name} · ${BRAND}` : BRAND;
+  $('game-name').textContent = g ? g.name : '';
+  $('rules').textContent = g ? g.rules : '';
+}
+
+function renderView() {
+  $('lobby').hidden = !inLobby();
+  $('game').hidden = inLobby();
+  $('home').hidden = inLobby();
+  if (inLobby()) { $('title-text').textContent = BRAND; document.title = BRAND; return renderLobby(); }
+  renderGameHeader();
+  if (game()) buildGrid();
+}
+
+function urlFor(id) {
+  const q = new URLSearchParams();
+  if (id !== null) q.set('game', id);
+  for (const k of ['contract', 'rpc']) if (params.get(k)) q.set(k, params.get(k));
+  return location.pathname + (q.toString() ? '?' + q : '');
+}
+
+// Throws when the page is not on an http(s) origin (opened as file:// or data:);
+// navigation still has to work there, just without the URL following along.
+function setUrl(id, push) {
+  try { history[push ? 'pushState' : 'replaceState']({ game: id }, '', urlFor(id)); } catch (e) { /* ignore */ }
+}
+
+// Enter a game (or the lobby, with id null) and reset everything round-scoped.
+function go(id, push = true) {
+  if (push && id === gameId) return;
   gameId = id; selected = null; round = null; lastResult = null; lastSeenRound = null;
   $('banner').classList.remove('show');
-  history.replaceState({}, '', `${location.pathname}?game=${id}${params.get('contract') ? `&contract=${CONTRACT}` : ''}`);
-  renderTabs(); buildGrid(); poll();
+  $('bets').innerHTML = ''; $('rolls').innerHTML = '';
+  if (push) setUrl(id, true);
+  scrollTo(0, 0);
+  renderView();
+  poll();
 }
+$('home').onclick = () => go(null);
+addEventListener('popstate', () => {
+  const p = new URLSearchParams(location.search);
+  go(p.has('game') ? Number(p.get('game')) : null, false);
+});
+
 function buildGrid() {
   const n = game().outcomes;
   grid.innerHTML = ''; grid.dataset.game = gameId;
@@ -413,10 +568,12 @@ async function poll() {
   if (skip > 0) { skip--; return; }            // back off after failures instead of hammering
   const g = gameId;
   try {
-    // One call per tick: games + round + last result.
+    // One call per tick: games + round + last result. In the lobby only the
+    // games list is used, so it stays one call there too.
     const snap = await view('get_snapshot', g === null ? {} : { game_id: g });
-    if (g !== null && g !== gameId) return;
+    if (g !== gameId) return; // navigated away while this was in flight
     snapshot = snap; setGames(snap.games);
+    if (inLobby()) { failures = 0; skip = 0; return; } // setGames redrew the cards if anything moved
     const r = snap.round, last = snap.last_round;
     round = r; renderRound();
     if (last && (!lastResult || last.round_id !== lastResult.round_id)) {
@@ -438,14 +595,15 @@ function pollFailed(e) {
 if (params.get('transactionHashes')) {
   const h = params.get('transactionHashes').split(',')[0];
   toast('Bet placed.'); $('last').insertAdjacentHTML('afterbegin', `<div class="hint">Your tx: <a target="_blank" href="${EXPLORER}/txns/${h}">${short(h)}</a></div>`);
-  history.replaceState({}, '', `${location.pathname}?game=${gameId}${params.get('contract') ? `&contract=${CONTRACT}` : ''}`);
+  setUrl(gameId, false);
 } else if (params.get('errorCode')) {
   toast('Wallet: ' + decodeURIComponent(params.get('errorMessage') || params.get('errorCode')), true);
-  history.replaceState({}, '', location.pathname);
+  setUrl(gameId, false);
 }
 
 $('contract-id').innerHTML = tag(CONTRACT, { kind: 'contract', role: 'contract', text: CONTRACT });
 renderWallet();
+renderView();
 poll();
 setInterval(poll, POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
