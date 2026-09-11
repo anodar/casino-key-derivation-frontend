@@ -81,9 +81,9 @@ function drumRow(ns, cls = 'sm') {
 }
 
 // ---- RPC views ----
-async function view(method, args = {}) {
+async function view(method, args = {}, account = CONTRACT) {
   const body = JSON.stringify({ jsonrpc: '2.0', id: '1', method: 'query', params: {
-    request_type: 'call_function', finality: 'final', account_id: CONTRACT, method_name: method,
+    request_type: 'call_function', finality: 'final', account_id: account, method_name: method,
     args_base64: btoa(JSON.stringify(args)) } });
   let lastErr;
   for (let attempt = 0; attempt < RPCS.length * 2; attempt++) {
@@ -665,31 +665,68 @@ function renderLast(r) {
     + `<div class="metas" style="margin-top:10px">${keyChip(r.big_c)}</div>`;
 }
 
-// Recompute every number a round drew, from the contract's stored preimages.
-// The key order of the JSON is what the contract hashes, so `input` goes in as
-// it came off the RPC and the three per-draw fields follow it. One key for the
-// round: `draw` and `drawn` are what make each preimage its own.
+// Check a settled round in two halves. The key: `big_c` pairing-checked as the
+// MPC network's derived key for this round's path (js/ckd.js; null when that
+// module could not load). The draws: every number recomputed from the stored
+// preimages. The key order of the JSON is what the contract hashes, so `input`
+// goes in as it came off the RPC and the three per-draw fields follow it. One
+// key for the round: `draw` and `drawn` are what make each preimage its own.
+const derivationPath = (g, i) => g === 0 ? `round-${i}` : `game-${g}-round-${i}`;
 const verified = new Map();
+// js/ckd.js is a module, so it lands after this script: wait for it a little
+// rather than settle for a draws-only seal, and refresh such seals if it lands late.
+const ckdReady = new Promise(r => {
+  if (window.verifyKey) return r(true);
+  window.addEventListener('ckd-ready', () => r(true), { once: true });
+  setTimeout(() => r(false), 8000);
+});
+window.addEventListener('ckd-ready', () => {
+  for (const [key, v] of verified) {
+    if (v.key !== null) continue;
+    const [g, i] = key.split(':').map(Number);
+    checkKey(g, i, rollCache.get(key)).then(k => { v.key = k; const el = document.getElementById(`v-${g}-${i}`); if (el) sealFor(el, v); });
+  }
+});
+async function checkKey(g, i, record) {
+  if (!(await ckdReady) || !record) return null;
+  try { return await window.verifyKey(CONTRACT, derivationPath(g, i), record.big_c); } catch (e) { return null; }
+}
 async function verifyRoll(g, i, record) {
   const key = `${g}:${i}`;
-  if (verified.has(key)) return verified.get(key);
+  const cached = verified.get(key);
+  if (cached) { // only the key half is retried: the module may have loaded since
+    if (cached.key === null) cached.key = await checkKey(g, i, record);
+    return cached;
+  }
   try {
     const input = await view('get_roll_input', { round_id: i, game_id: g });
     if (!input || !record.draws.length || !record.big_c) return null;
     const drawn = [];
-    let ok = true;
-    for (let d = 0; ok && d < record.draws.length; d++) {
+    let draws = true;
+    for (let d = 0; draws && d < record.draws.length; d++) {
       const preimage = JSON.stringify({ input, draw: d, drawn: [...drawn], big_c: record.big_c });
       const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(preimage)));
       let r = 0n; for (const b of hash) r = (r << 8n) | BigInt(b);
       const left = [];
       for (let n = 0; n < input.outcomes; n++) if (!drawn.includes(n)) left.push(n);
-      ok = left[Number(r % BigInt(left.length))] === record.draws[d];
+      draws = left[Number(r % BigInt(left.length))] === record.draws[d];
       drawn.push(record.draws[d]);
     }
-    verified.set(key, ok);
-    return ok;
+    const result = { draws, key: await checkKey(g, i, record) };
+    verified.set(key, result);
+    return result;
   } catch (e) { return null; }
+}
+// Green only when both halves hold; amber when the draws hold but the key
+// could not be checked here; red when either fails.
+function sealFor(el, v) {
+  const ok = v.draws && v.key === true, part = v.draws && v.key === null;
+  el.textContent = ok || part ? '✓' : '✗';
+  el.className = 'seal ' + (ok ? 'ok' : part ? 'part' : 'bad');
+  el.title = !v.draws ? 'A recomputed draw does not match!'
+    : v.key === false ? 'big_c is not the MPC network\'s derived key for this round!'
+    : v.key === null ? 'Every draw recomputed here; the key could not be pairing-checked (module not loaded)'
+    : 'Key pairing-checked against the MPC network\'s public key, every draw recomputed from get_roll_input, in this browser';
 }
 
 const rollCache = new Map();
@@ -705,8 +742,7 @@ async function renderRolls(currentRound) {
     || '<div class="empty">No draws yet.</div>';
   for (const i of ids) {
     const r = rollCache.get(key(i)); if (!r) continue;
-    verifyRoll(g, i, r).then(ok => { const el = document.getElementById(`v-${g}-${i}`); if (!el || ok === null) return;
-      el.textContent = ok ? '✓' : '✗'; el.title = ok ? 'Every draw recomputed from get_roll_input in this browser' : 'A recomputed draw does not match!'; el.className = 'seal ' + (ok ? 'ok' : 'bad'); });
+    verifyRoll(g, i, r).then(v => { const el = document.getElementById(`v-${g}-${i}`); if (el && v) sealFor(el, v); });
   }
 }
 

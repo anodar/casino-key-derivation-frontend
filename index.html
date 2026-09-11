@@ -23,8 +23,8 @@
 <main id="lobby">
   <section class="hero">
     <h2>Choose your game</h2>
-    <p>Every round is drawn from the MPC network's derived key — <b>verified on-chain</b>,
-      <b>recomputable in your browser</b>.</p>
+    <p>Every round is drawn from the MPC network's derived key — <b>pairing-checked</b> and
+      <b>recomputed in your browser</b>.</p>
     <div class="metas" id="house"></div>
   </section>
   <div class="game-grid" id="game-grid"><div class="empty">Loading games…</div></div>
@@ -85,7 +85,7 @@
   </section>
 
   <section class="card">
-    <h2><span>Recent draws</span> <span class="badge" id="verified-legend" title="Every number recomputed from get_roll_input, in this browser">&#10003; verified here</span></h2>
+    <h2><span>Recent draws</span> <span class="badge" id="verified-legend" title="The key pairing-checked against the MPC network's public key and every number recomputed from get_roll_input, in this browser">&#10003; verified here</span></h2>
     <div class="ledger" id="rolls"></div>
     <div class="chain" aria-label="How each number is drawn">
       <span class="link"><i>preimage</i><b>input&middot;draw&middot;drawn&middot;big_c</b></span>
@@ -99,12 +99,12 @@
     <details class="spec">
       <summary>How a draw is derived</summary>
       <dl>
-        <dt>big_c</dt><dd>The MPC network's derived key for <span class="mono">(contract, path)</span>, pairing-verified on-chain before the casino sees it. One per round.</dd>
+        <dt>big_c</dt><dd>The MPC network's derived key for <span class="mono">(contract, path)</span>: the casino asks for it publicly verifiable with an identity app key, so it comes back in the clear and <span class="mono">e(big_c, G2) = e(H(mpk &#8214; app_id), mpk)</span> holds for the key itself. The MPC contract checks that before returning it; this page checks it again. One per round.</dd>
         <dt>path</dt><dd><span class="mono">round-N</span> for game 0, <span class="mono">game-G-round-N</span> otherwise.</dd>
         <dt>input</dt><dd>The round's public data from <span class="mono">get_roll_input</span>: game, round, limits, pot, every bet.</dd>
         <dt>draw, drawn</dt><dd>This draw's index and the numbers already out &mdash; what gives each number a preimage of its own.</dd>
         <dt>reduce</dt><dd>Over the numbers still in the drum, so a repeat is reconsidered rather than drawn twice. One number decides a single-outcome game; bingo draws until a card fills.</dd>
-        <dt>&#10003;</dt><dd>Every number of the round recomputed here, from the contract's own inputs.</dd>
+        <dt>&#10003;</dt><dd>Green: the key passed the pairing check against the MPC network's public key and every number of the round recomputed here, from the contract's own inputs. Amber: the numbers recomputed but the pairing library did not load.</dd>
       </dl>
     </details>
   </section>
@@ -114,5 +114,6 @@
 <script src="js/app.js"></script>
 <script src="js/sha256-shim.js"></script>
 <script type="module" src="js/wallet.js"></script>
+<script type="module" src="js/ckd.js"></script>
 </body>
 </html>
