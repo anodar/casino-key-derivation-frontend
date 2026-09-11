@@ -23,28 +23,65 @@
   .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .home-btn { flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; }
   .home-btn:hover { border-color: var(--gold); color: var(--gold); }
-  #game { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
-  @media (max-width: 860px) { #game { grid-template-columns: 1fr; } }
+  /* The table: the board in the middle, the round's numbers in one strip above
+     it, and everything that is only read — who is in, what the last round did,
+     the ledger — in two narrower rails either side. The rails top-align so a
+     short one does not stretch to match its neighbour. */
+  #game { max-width: 1280px; margin: 0 auto; padding: 20px 24px 60px; display: grid; gap: 18px; align-items: start;
+    grid-template-columns: minmax(230px, 300px) minmax(0, 1fr) minmax(230px, 320px);
+    grid-template-areas: "banner banner banner" "strip strip strip" "bets stage last" "bets stage draws"; }
+  #banner { grid-area: banner; } #round-strip { grid-area: strip; } #bets-card { grid-area: bets; }
+  #stage { grid-area: stage; } #last-card { grid-area: last; } #draws-card { grid-area: draws; }
+  /* Narrower: the board keeps the middle on a row of its own, the rails share
+     the row below. Phone: one column, board first, result before the ledger. */
+  @media (max-width: 1080px) {
+    #game { grid-template-columns: 1fr 1fr;
+      grid-template-areas: "banner banner" "strip strip" "stage stage" "bets last" "bets draws"; }
+    #stage { justify-self: center; width: 100%; max-width: 660px; }
+  }
+  @media (max-width: 700px) {
+    #game { grid-template-columns: 1fr; padding: 16px 14px 50px; gap: 14px;
+      grid-template-areas: "banner" "strip" "stage" "last" "bets" "draws"; }
+  }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  /* ---- round strip ---- */
+  .strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; padding: 11px 18px; }
+  .strip-id { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+  .strip-id .rid-lbl { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  .strip-id b { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+  .strip-stats { display: flex; flex-wrap: wrap; gap: 6px; flex: none; }
+  .strip .goal { flex: 1 1 200px; min-width: 160px; margin: 0; }
+  .strip-house { margin-left: auto; }
+  .strip-house .meta { font-size: 11px; opacity: .8; }
+  .strip-house:empty { display: none; }
+  /* ---- the stage ---- */
+  .stage { padding: 20px 24px 22px; }
+  .stage h2 { justify-content: center; gap: 10px; }
+  .stage .rules { text-align: center; margin: 0 0 6px; }
+  .stage .toolbar, .stage .board-live, .stage .betline { justify-content: center; }
+  .stage .grid { max-width: 540px; margin: 12px auto 18px; }
+  .stage .bet-wheel { max-width: 340px; }
+  .stage .betline { margin-top: 4px; }
+  /* ---- the rails ---- */
+  .rail { padding: 14px 16px 16px; }
+  .rail h2 { font-size: 13px; margin-bottom: 10px; }
+  .rail table { font-size: 13px; }
+  .rail th, .rail td { padding: 5px 3px; }
+  .rail .roll { font-size: 60px; }
+  .count { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--felt-2); border: 1px solid var(--line);
+    color: var(--text); text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  .count:empty { display: none; }
   /* A grid item's automatic minimum is its content, so one wide table would
      stretch its card past the viewport and take the page sideways with it.
      Let the cards shrink to their track and have wide content scroll instead. */
   #game > .card, #game > .banner { min-width: 0; }
   .card h2 { margin: 0 0 12px; font-size: 16px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; justify-content: space-between; }
-  .wide { grid-column: 1 / -1; }
   .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); text-transform: none; letter-spacing: 0; }
   .badge.Open { color: var(--green); border-color: var(--green); }
   .badge.Rolling { color: var(--gold); border-color: var(--gold); animation: pulse 1s infinite; }
   .badge.Paying { color: var(--gold); border-color: var(--gold); }
   @keyframes pulse { 50% { opacity: .4; } }
   .badge.offline { opacity: .5; text-decoration: line-through; }
-  /* Three across where they fit, two then one as the screen narrows: the
-     amounts cannot hyphenate, so fixed thirds would overflow on a phone. */
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 12px; margin-bottom: 14px; }
-  .stat { background: var(--felt-2); border-radius: 10px; padding: 10px 12px; }
-  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
-  .stat .v { font-size: 20px; font-weight: 700; margin-top: 2px; }
-  .stat .v.gold { color: var(--gold); }
   .bar { height: 12px; background: var(--felt-2); border-radius: 999px; overflow: hidden; margin: 6px 0 4px; }
   .bar > div { height: 100%; background: linear-gradient(90deg, var(--gold-2), var(--gold)); width: 0; transition: width .4s; }
   .hint { color: var(--muted); font-size: 13px; }
@@ -108,7 +145,7 @@
   /* Your own card, called out above the table: it is the one thing you watch a
      round for, and a row in a shared list buries it. */
   .mycard { background: var(--felt-2); border: 1px solid var(--line); border-left: 3px solid var(--green);
-    border-radius: 10px; padding: 10px 12px; margin-top: 12px; }
+    border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; }
   .mycard h3 { margin: 0 0 7px; font: 600 11px/1 system-ui, sans-serif; color: var(--muted);
     text-transform: uppercase; letter-spacing: .8px; }
   .mycard .row { gap: 10px; }
@@ -304,8 +341,7 @@
   .seal.bad { border: 1px solid var(--red); color: var(--red); }
   .seal.part { border: 1px solid var(--gold); color: var(--gold); }
   /* The derivation as a flow rather than a paragraph. */
-  .chain { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-top: 14px;
-    padding-top: 14px; border-top: 1px solid var(--line); }
+  .chain { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin: 12px 0 4px; }
   .link { display: grid; gap: 3px; align-content: center; padding: 6px 11px; border-radius: 10px;
     background: var(--felt-2); border: 1px solid var(--line); }
   .link i { font-style: normal; font-size: 9px; text-transform: uppercase; letter-spacing: .9px; color: var(--muted); }
@@ -326,7 +362,7 @@
   .spec dd { margin: 0; }
   .spec .mono { word-break: normal; overflow-wrap: break-word; }
   @media (max-width: 520px) { .spec dl { grid-template-columns: 1fr; gap: 2px 0; } .spec dd { margin-bottom: 8px; } }
-  .banner { grid-column: 1 / -1; background: linear-gradient(90deg, #2a4a1f, #1e3d2c); border: 1px solid var(--green); border-radius: 14px; padding: 13px 16px; display: none; }
+  .banner { background: linear-gradient(90deg, #2a4a1f, #1e3d2c); border: 1px solid var(--green); border-radius: 14px; padding: 13px 16px; display: none; }
   .banner.show { display: block; animation: banner-pop .4s cubic-bezier(.34, 1.56, .64, 1); }
   @keyframes banner-pop { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   /* A winning round gets its own heartbeat glow on top of the pop-in — the one

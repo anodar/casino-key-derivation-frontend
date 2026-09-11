@@ -418,6 +418,7 @@ function renderRound() {
       + `<td>${fmtNear(b.amount)}</td>`;
     tb.appendChild(tr);
   }
+  $('bets-count').textContent = round.bets.length || '';
   $('bets-table').style.display = round.bets.length ? '' : 'none';
   $('no-bets').style.display = round.bets.length ? 'none' : '';
   const minNear = Number(BigInt(round.min_bet) * 10000n / YOCTO) / 10000;
