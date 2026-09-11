@@ -32,6 +32,8 @@ const PAGES = { Bingo: 'bingo.html', CrazySpinner: 'spinner.html', CoinFlip: 'co
 const carried = new URLSearchParams();
 for (const k of ['contract', 'rpc']) if (params.get(k)) carried.set(k, params.get(k));
 const pageUrl = file => file + (carried.toString() ? '?' + carried : '');
+// A link to a specific game's own history page, carrying the same overrides.
+const gamePageUrl = (file, gameId) => { const u = new URLSearchParams(carried); u.set('game', gameId); return `${file}?${u}`; };
 
 const $ = id => document.getElementById(id);
 
@@ -64,6 +66,38 @@ function tag(id, { kind = '', role = '', text = null } = {}) {
 }
 // A value under a two-word label, instead of a sentence around it.
 const meta = (k, v, kind = '') => `<span class="meta ${kind}"><i>${esc(k)}</i><b>${v}</b></span>`;
+
+// ---- shared game rendering: dice, key chips, draw ledgers ----
+// A die face as pips rather than a numeral: outcome `n` is face `n + 1`, and
+// PIPS says which of the nine spots of a 3x3 grid that face fills.
+const PIPS = [[4], [0, 8], [0, 4, 8], [0, 2, 6, 8], [0, 2, 4, 6, 8], [0, 2, 3, 5, 6, 8]];
+function dieFace(n, cls = '') {
+  const pips = PIPS[n].map(p => `<circle cx="${25 + (p % 3) * 25}" cy="${25 + Math.floor(p / 3) * 25}" r="8"/>`).join('');
+  return `<svg class="die ${cls}" viewBox="0 0 100 100" aria-hidden="true"><rect x="3" y="3" width="94" height="94" rx="18"/>${pips}</svg>`;
+}
+// A derived key as three swatches hued from thirds of it plus its first bytes:
+// enough to see that two rounds ran on different keys without reading the hex.
+function keyChip(k) {
+  const w = Math.ceil(k.length / 3);
+  const fp = [0, 1, 2].map(i => `<i style="background:hsl(${hue(k.slice(i * w, i * w + w))} 62% 58%)"></i>`).join('');
+  return `<button type="button" class="keychip" data-key="${esc(k)}" title="${esc(k)}\nClick to copy">`
+    + `${fp}<b>${esc(k.slice(0, 8))}…</b></button>`;
+}
+document.addEventListener('click', e => {
+  const c = e.target.closest('.keychip');
+  if (c && navigator.clipboard) navigator.clipboard.writeText(c.dataset.key).then(() => toast('Key copied'), () => {});
+});
+// The numbers a round drew, as balls. A full drum is 36 of them, so a long
+// round shows its opening, a count of what is elided, and the number that
+// ended it — the one that actually decided the round.
+const BALLS_SHOWN = 10;
+function drumRow(ns, label, cls = 'sm') {
+  const long = ns.length > BALLS_SHOWN;
+  const head = (long ? ns.slice(0, BALLS_SHOWN - 1) : ns).map(x => `<span>${esc(label(x))}</span>`).join('');
+  return `<span class="drum ${cls}">${head}`
+    + (long ? `<em>+${ns.length - BALLS_SHOWN}</em><span class="last">${esc(label(ns[ns.length - 1]))}</span>` : '')
+    + `</span>`;
+}
 
 // The eight-slot wheel's geometry, shared by the lobby card art and the table's
 // spinner. Slot i owns the arc from i*45 degrees clockwise from the top; its

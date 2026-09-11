@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>All draws · Casino Key Derivation</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@near-wallet-selector/modal-ui-js@8.10.2/styles.css">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <a class="home-btn" id="home" href="index.html" title="Back" aria-label="Back">←</a>
+    <h1><span id="title-text">All draws</span> <small id="contract-id"></small></h1>
+  </div>
+  <div class="row" id="wallet">
+    <span id="account"></span>
+    <span id="balance" class="hint" title="Balance at page load; refresh to update"></span>
+    <button class="btn ghost" id="connect">Connect wallet</button>
+  </div>
+</header>
+
+<main id="draws-page">
+  <section class="card strip">
+    <div class="strip-id"><span class="rid-lbl">All draws</span> <b id="game-title">–</b></div>
+    <div class="metas strip-house" id="draws-meta"></div>
+  </section>
+
+  <section class="card rail">
+    <h2><span>Every draw since round 0</span></h2>
+    <div class="ledger" id="rolls"></div>
+    <div class="row" style="justify-content:center;margin-top:14px">
+      <button class="btn ghost" id="load-more" type="button" hidden>Load older draws</button>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script src="js/common.js"></script>
+<script src="js/draws.js"></script>
+<script type="module" src="js/wallet.js"></script>
+</body>
+</html>

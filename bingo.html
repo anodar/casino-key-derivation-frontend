@@ -93,7 +93,10 @@
   </section>
 
   <section class="card rail" id="draws-card">
-    <h2><span>Recent draws</span> <button class="btn ghost mini" type="button" id="verify" title="Check each round: its key pairing-checked against the MPC network's public key, the published secret opening it, every draw recomputed, the key asked for once, and every bet placed before that" disabled>Verify</button></h2>
+    <h2><span>Recent draws</span> <span class="row" style="gap:8px">
+      <a class="btn ghost mini" id="all-draws" href="draws.html">All draws</a>
+      <button class="btn ghost mini" type="button" id="verify" title="Check each round: its key pairing-checked against the MPC network's public key, the published secret opening it, every draw recomputed, the key asked for once, and every bet placed before that" disabled>Verify</button>
+    </span></h2>
     <div class="ledger" id="rolls"></div>
     <div class="metas vsum" id="verify-summary"></div>
     <details class="spec">

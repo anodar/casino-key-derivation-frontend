@@ -10,37 +10,7 @@ let gameId = null, games = [];
 const game = () => games.find(g => g.game_id === gameId);
 const label = n => { const g = game(); return g && g.labels ? g.labels[n] : String(n); };
 
-// A die face as pips rather than a numeral: outcome `n` is face `n + 1`, and
-// PIPS says which of the nine spots of a 3x3 grid that face fills.
-const PIPS = [[4], [0, 8], [0, 4, 8], [0, 2, 6, 8], [0, 2, 4, 6, 8], [0, 2, 3, 5, 6, 8]];
-function dieFace(n, cls = '') {
-  const pips = PIPS[n].map(p => `<circle cx="${25 + (p % 3) * 25}" cy="${25 + Math.floor(p / 3) * 25}" r="8"/>`).join('');
-  return `<svg class="die ${cls}" viewBox="0 0 100 100" aria-hidden="true"><rect x="3" y="3" width="94" height="94" rx="18"/>${pips}</svg>`;
-}
 const onDice = () => { const g = game(); return !!g && g.kind === 'Dice' && g.outcomes === 6; };
-// A derived key as three swatches hued from thirds of it plus its first bytes:
-// enough to see that two rounds ran on different keys without reading the hex.
-function keyChip(k) {
-  const w = Math.ceil(k.length / 3);
-  const fp = [0, 1, 2].map(i => `<i style="background:hsl(${hue(k.slice(i * w, i * w + w))} 62% 58%)"></i>`).join('');
-  return `<button type="button" class="keychip" data-key="${esc(k)}" title="${esc(k)}\nClick to copy">`
-    + `${fp}<b>${esc(k.slice(0, 8))}…</b></button>`;
-}
-document.addEventListener('click', e => {
-  const c = e.target.closest('.keychip');
-  if (c && navigator.clipboard) navigator.clipboard.writeText(c.dataset.key).then(() => toast('Key copied'), () => {});
-});
-// The numbers a round drew, as balls. A full drum is 36 of them, so a long
-// round shows its opening, a count of what is elided, and the number that
-// ended it — the one that actually decided the round.
-const BALLS_SHOWN = 10;
-function drumRow(ns, cls = 'sm') {
-  const long = ns.length > BALLS_SHOWN;
-  const head = (long ? ns.slice(0, BALLS_SHOWN - 1) : ns).map(x => `<span>${esc(label(x))}</span>`).join('');
-  return `<span class="drum ${cls}">${head}`
-    + (long ? `<em>+${ns.length - BALLS_SHOWN}</em><span class="last">${esc(label(ns[ns.length - 1]))}</span>` : '')
-    + `</span>`;
-}
 
 // ---- the game ----
 function setGames(list) {
@@ -56,6 +26,7 @@ function renderGameHeader() {
   $('game-name').textContent = g ? g.name : '';
   $('rules').textContent = g ? g.rules : '';
   $('rules-fold').hidden = !g;
+  if (g) $('all-draws').href = gamePageUrl('draws.html', g.game_id);
 }
 
 const gridShape = () => { const g = game(); return g ? `${g.game_id}:${g.outcomes}:${g.picks}` : ''; };
@@ -523,8 +494,12 @@ function renderLast(r) {
 // hashes, so `input` goes in as it came off the RPC, then `draw`, `drawn` and
 // the exchange field by field. One exchange for the round: `draw` and `drawn`
 // are what make each preimage its own.
-const derivationPath = (g, i) => g === 0 ? `round-${i}` : `game-${g}-round-${i}`;
-const sameGame = (g, path) => (g === 0 ? /^round-\d+$/ : new RegExp(`^game-${g}-round-\\d+$`)).test(path);
+// Paths carry the block the contract was initialised in (`deployment`), so a
+// wiped and re-initialised casino, whose round ids start over, never asks for
+// a path whose key an earlier lifetime published.
+const roundPrefix = g => `deploy-${snapshot.deployment}-game-${g}-round-`;
+const derivationPath = (g, i) => roundPrefix(g) + i;
+const sameGame = (g, path) => new RegExp(`^${roundPrefix(g)}\\d+$`).test(path);
 const verified = new Map();
 // js/ckd.js is a module, so it lands after this script: wait for it a little
 // rather than settle for a draws-only seal, and refresh such seals if it lands late.
@@ -746,12 +721,12 @@ const rollCache = new Map();
 let ledger = [];
 async function renderRolls(currentRound) {
   const g = gameId, key = i => `${g}:${i}`;
-  const ids = []; for (let i = currentRound - 1; i >= 0 && ids.length < 8; i--) ids.push(i);
+  const ids = []; for (let i = currentRound - 1; i >= 0 && ids.length < 10; i--) ids.push(i);
   for (const i of ids.filter(i => !rollCache.has(key(i)))) rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g })); // sequential: bursts get rate-limited
   ledger = ids.filter(i => { const r = rollCache.get(key(i)); return r && r.draws.length; });
   $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i)); const drew = r && r.draws.length;
     return `<div class="lrow"><span class="rid">#${i}</span>`
-      + (drew ? `<span class="seal" id="v-${g}-${i}">✓</span>` + drumRow(r.draws) + keyChip(r.ckd.key || r.ckd.big_c)
+      + (drew ? `<span class="seal" id="v-${g}-${i}">✓</span>` + drumRow(r.draws, label) + keyChip(r.ckd.key || r.ckd.big_c)
               : `<span class="dash">—</span>`) + `</div>`; }).join('')
     || '<div class="empty">No draws yet.</div>';
   // Seals stay empty until Verify; rounds it already checked keep theirs.
