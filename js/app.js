@@ -1,5 +1,5 @@
 const params = new URLSearchParams(location.search);
-const CONTRACT = params.get('contract') || 'casino_key_derivation2.testnet';
+const CONTRACT = params.get('contract') || 'casino_key_derivation.testnet';
 // Public testnet RPCs rate-limit per IP (a 429 without CORS headers shows up as a
 // CORS error in the console). Rotate across independent providers on failure.
 const RPCS = params.get('rpc') ? [params.get('rpc')] : [
