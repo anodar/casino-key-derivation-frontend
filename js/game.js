@@ -564,7 +564,9 @@ const CHECKS = [
   ['opened', v => v.opened, 'big_c opened with sk is the recorded key', 'big_c does not open to the recorded key!',
     'no secret on record, or the pairing library did not load'],
   ['one query', v => v.queries === null ? null : v.queries === 1, 'the MPC contract was asked for this round\'s path once',
-    v => `the MPC contract was asked for this round's path ${v.queries} times!`, 'the indexer could not be reached'],
+    v => `the MPC contract was asked for this round's path ${v.queries} times! The network derives the same key for the same path, `
+      + 'and the earlier answer was published, so this round\'s randomness was knowable before it drew.',
+    'the indexer could not be reached'],
 ];
 const verdicts = v => CHECKS.map(([name, of, ok, bad, none]) => {
   const r = of(v);
@@ -572,22 +574,67 @@ const verdicts = v => CHECKS.map(([name, of, ok, bad, none]) => {
 });
 // Green only when every check holds; amber when none fails but some could not
 // run; red when any fails.
+const mark = r => r === true ? '✓' : r === false ? '✗' : '–';
 function sealFor(el, v) {
   const vs = verdicts(v);
   const bad = vs.some(x => x.r === false), part = vs.some(x => x.r === null);
   el.textContent = bad ? '✗' : '✓';
   el.className = 'seal ' + (bad ? 'bad' : part ? 'part' : 'ok');
-  el.title = vs.map(x => `${x.r === true ? '✓' : x.r === false ? '✗' : '–'} ${x.name}: ${x.text}`).join('\n');
+  // The verdicts live on the seal for the tooltip below; the label carries them
+  // to a screen reader, and the tabindex lets a keyboard reach them.
+  el._verdicts = vs;
+  el.removeAttribute('title');
+  el.tabIndex = 0;
+  el.setAttribute('aria-label', vs.map(x => `${mark(x.r)} ${x.name}: ${x.text}`).join('. '));
 }
+// One tooltip for every seal: hover or focus a seal and the five verdicts open
+// under it, the failing one in red, so a cross says what did not hold. Fixed to
+// the viewport so no card or scroll box can clip it.
+const vtip = document.createElement('div');
+vtip.id = 'vtip'; vtip.className = 'vtip'; vtip.setAttribute('role', 'tooltip'); vtip.hidden = true;
+document.body.appendChild(vtip);
+function showTip(el) {
+  const vs = el._verdicts; if (!vs) return;
+  const ok = vs.filter(x => x.r === true).length, bad = vs.filter(x => x.r === false).length;
+  const round = (el.id.match(/-(\d+)$/) || [])[1];
+  vtip.innerHTML = `<div class="vtip-head"><b>Round #${esc(round)}</b><span class="${bad ? 'bad' : ok === vs.length ? 'ok' : 'part'}">`
+    + (bad ? `${bad} of ${vs.length} checks failed` : ok === vs.length ? 'all checks hold' : `${ok} of ${vs.length} checks hold, the rest could not run`)
+    + `</span></div><ul>` + vs.map(x => `<li class="${x.r === true ? 'ok' : x.r === false ? 'bad' : 'part'}">`
+    + `<i>${mark(x.r)}</i><span><b>${esc(x.name)}</b> ${esc(x.text)}</span></li>`).join('') + `</ul>`;
+  vtip.hidden = false;
+  const r = el.getBoundingClientRect(), pad = 8, w = vtip.offsetWidth, h = vtip.offsetHeight;
+  const left = Math.max(pad, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - pad));
+  const below = r.bottom + pad + h <= innerHeight || r.top - pad - h < 0;
+  vtip.style.left = left + 'px';
+  vtip.style.top = (below ? r.bottom + pad : r.top - pad - h) + 'px';
+  vtip.classList.toggle('above', !below);
+  vtip.style.setProperty('--arrow-x', Math.round(r.left + r.width / 2 - left) + 'px');
+  el.setAttribute('aria-describedby', 'vtip');
+}
+function hideTip() {
+  vtip.hidden = true;
+  document.querySelectorAll('.seal[aria-describedby]').forEach(s => s.removeAttribute('aria-describedby'));
+}
+const sealOf = e => e.target instanceof Element ? e.target.closest('.seal') : null;
+document.addEventListener('mouseover', e => { const s = sealOf(e); if (s && s._verdicts) showTip(s); });
+document.addEventListener('mouseout', e => { const s = sealOf(e); if (s && !(e.relatedTarget instanceof Element && s.contains(e.relatedTarget))) hideTip(); });
+document.addEventListener('focusin', e => { const s = sealOf(e); if (s) showTip(s); });
+document.addEventListener('focusout', e => { if (sealOf(e)) hideTip(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideTip(); });
+addEventListener('scroll', hideTip, true);
 // Under the ledger, the checks across every round it shows: how many passed.
 function renderVerifySummary() {
   const el = $('verify-summary'), g = gameId;
   const vs = ledger.map(i => verified.get(`${g}:${i}`)).filter(Boolean);
   if (!vs.length) { el.innerHTML = ''; return; }
+  const rounds = ledger.filter(i => verified.get(`${g}:${i}`));
   el.innerHTML = CHECKS.map(([name, of]) => {
     const rs = vs.map(of), ok = rs.filter(r => r === true).length, bad = rs.some(r => r === false);
+    const failed = rounds.filter((i, k) => rs[k] === false).map(i => `#${i}`), unrun = rounds.filter((i, k) => rs[k] === null).map(i => `#${i}`);
+    const title = (failed.length ? `✗ failed on round ${failed.join(', ')}` : '')
+      + (failed.length && unrun.length ? '\n' : '') + (unrun.length ? `– could not run on round ${unrun.join(', ')}` : '');
     return meta(name, bad ? `${ok}/${vs.length} ✗` : rs.some(r => r === null) ? `${ok}/${vs.length} –` : `${ok}/${vs.length} ✓`,
-      bad ? 'warn' : ok === vs.length ? 'gold' : '');
+      bad ? 'warn' : ok === vs.length ? 'gold' : '').replace('<span class="meta', `<span title="${esc(title)}" class="meta`);
   }).join('');
 }
 
