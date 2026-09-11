@@ -665,10 +665,10 @@ function renderLast(r) {
     + `<div class="metas" style="margin-top:10px">${keyChip(r.big_c)}</div>`;
 }
 
-// Check a settled round in two halves. The key: `big_c` pairing-checked as the
-// MPC network's derived key for this round's path (js/ckd.js; null when that
-// module could not load). The draws: every number recomputed from the stored
-// preimages. The key order of the JSON is what the contract hashes, so `input`
+// Check a settled round in two halves, on the Verify button. The key: `big_c`
+// pairing-checked as the MPC network's derived key for this round's path
+// (js/ckd.js; null when that module could not load). The draws: every number
+// recomputed from the stored preimages. The key order of the JSON is what the contract hashes, so `input`
 // goes in as it came off the RPC and the three per-draw fields follow it. One
 // key for the round: `draw` and `drawn` are what make each preimage its own.
 const derivationPath = (g, i) => g === 0 ? `round-${i}` : `game-${g}-round-${i}`;
@@ -725,26 +725,38 @@ function sealFor(el, v) {
   el.className = 'seal ' + (ok ? 'ok' : part ? 'part' : 'bad');
   el.title = !v.draws ? 'A recomputed draw does not match!'
     : v.key === false ? 'big_c is not the MPC network\'s derived key for this round!'
-    : v.key === null ? 'Every draw recomputed here; the key could not be pairing-checked (module not loaded)'
-    : 'Key pairing-checked against the MPC network\'s public key, every draw recomputed from get_roll_input, in this browser';
+    : v.key === null ? 'Every draw recomputed; the key could not be pairing-checked (module not loaded)'
+    : 'Key pairing-checked against the MPC network\'s public key, every draw recomputed from get_roll_input';
 }
 
 const rollCache = new Map();
+// Rounds the ledger shows that drew; what Verify checks.
+let ledger = [];
 async function renderRolls(currentRound) {
   const g = gameId, key = i => `${g}:${i}`;
   const ids = []; for (let i = currentRound - 1; i >= 0 && ids.length < 8; i--) ids.push(i);
   for (const i of ids.filter(i => !rollCache.has(key(i)))) rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g })); // sequential: bursts get rate-limited
   if (g !== gameId) return;
+  ledger = ids.filter(i => { const r = rollCache.get(key(i)); return r && r.draws.length; });
   $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i)); const drew = r && r.draws.length;
     return `<div class="lrow"><span class="rid">#${i}</span>`
       + (drew ? `<span class="seal" id="v-${g}-${i}">✓</span>` + drumRow(r.draws) + keyChip(r.big_c)
               : `<span class="dash">—</span>`) + `</div>`; }).join('')
     || '<div class="empty">No draws yet.</div>';
-  for (const i of ids) {
-    const r = rollCache.get(key(i)); if (!r) continue;
-    verifyRoll(g, i, r).then(v => { const el = document.getElementById(`v-${g}-${i}`); if (el && v) sealFor(el, v); });
-  }
+  // Seals stay empty until Verify; rounds it already checked keep theirs.
+  for (const i of ledger) { const v = verified.get(key(i)); if (v) sealFor(document.getElementById(`v-${g}-${i}`), v); }
+  $('verify').disabled = !ledger.length;
 }
+$('verify').onclick = async () => {
+  const g = gameId, btn = $('verify');
+  btn.disabled = true; btn.textContent = 'Verifying…';
+  try {
+    for (const i of ledger) {
+      const v = await verifyRoll(g, i, rollCache.get(`${g}:${i}`));
+      const el = document.getElementById(`v-${g}-${i}`); if (el && v) sealFor(el, v);
+    }
+  } finally { btn.textContent = 'Verify'; btn.disabled = !ledger.length; }
+};
 
 function showBanner(r) {
   const won = r.payouts.find(p => p.player === accountId);
