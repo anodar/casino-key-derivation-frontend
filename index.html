@@ -10,7 +10,6 @@
 <body>
 <header>
   <div class="brand">
-    <button class="home-btn" id="home" title="Back to the lobby" aria-label="Back to the lobby" hidden>←</button>
     <h1><span id="title-text">Casino Key Derivation</span> <small id="contract-id"></small></h1>
   </div>
   <div class="row" id="wallet">
@@ -28,100 +27,11 @@
   </section>
   <div class="game-grid" id="game-grid"><div class="empty">Loading games…</div></div>
 </main>
-
-<main id="game" hidden>
-  <div class="banner" id="banner"></div>
-
-  <!-- The round at a glance, one strip across the top: what round it is, what
-       it is doing, the money in it and how close it is to rolling. -->
-  <section class="card strip" id="round-strip">
-    <div class="strip-id"><span class="rid-lbl">Round</span> <b id="round-id">–</b> <span class="badge" id="state">…</span></div>
-    <div class="strip-stats">
-      <span class="meta"><i>bets</i><b id="total">–</b></span>
-      <span class="meta gold"><i>carried</i><b id="carry">–</b></span>
-      <span class="meta gold"><i>pot now</i><b id="pot">–</b></span>
-    </div>
-    <div class="goal">
-      <div class="bar"><div id="bar"></div><span id="pct"></span></div>
-      <span class="goal-to"><b id="goal">&ndash;</b><i>to roll</i></span>
-    </div>
-    <div class="metas strip-house" id="cut"></div>
-  </section>
-
-  <!-- Left rail: who is in this round. -->
-  <section class="card rail" id="bets-card">
-    <h2><span>Bets</span> <span class="count" id="bets-count"></span></h2>
-    <div id="my-cards"></div>
-    <div class="tscroll">
-      <table id="bets-table">
-        <thead><tr><th>Player</th><th id="bets-col">Number</th><th>Bet</th></tr></thead>
-        <tbody id="bets"></tbody>
-      </table>
-    </div>
-    <div class="empty" id="no-bets">No bets yet.</div>
-  </section>
-
-  <!-- Centre stage: the board is the bet form. -->
-  <section class="card stage" id="stage">
-    <h2><span>Place your bet</span> <span class="badge" id="game-name"></span></h2>
-    <details class="spec rules" id="rules-fold"><summary>Rules</summary><p class="hint" id="rules" style="margin:10px 0 0"></p></details>
-    <div class="toolbar" id="pick-tools" hidden>
-      <button class="btn ghost mini" type="button" id="quick">Quick pick</button>
-      <button class="btn ghost mini" type="button" id="clear">Clear</button>
-      <span class="hint" id="pick-count"></span>
-    </div>
-    <div class="board-live" id="board-live" hidden aria-live="polite"></div>
-    <div class="res-wheel bet-wheel" id="wheel-board" hidden></div>
-    <div class="grid" id="numbers"></div>
-    <div class="row betline">
-      <label class="hint amount-label" for="amount">Amount</label>
-      <div class="amount">
-        <button class="step" type="button" id="amount-down" aria-label="Lower the amount by one minimum bet">&minus;</button>
-        <input type="number" id="amount" min="0" step="0.1" inputmode="decimal" aria-label="Amount in NEAR">
-        <span class="unit" aria-hidden="true">Ⓝ</span>
-        <button class="step" type="button" id="amount-up" aria-label="Raise the amount by one minimum bet">+</button>
-      </div>
-      <button class="btn" id="bet" disabled>Bet on –</button>
-    </div>
-    <div class="metas center" id="bet-hint" style="margin-top:10px"></div>
-  </section>
-
-  <!-- Right rail: what the last round did, and the ones before it. -->
-  <section class="card rail" id="last-card">
-    <h2>Last result</h2>
-    <div id="last"></div>
-  </section>
-
-  <section class="card rail" id="draws-card">
-    <h2><span>Recent draws</span> <button class="btn ghost mini" type="button" id="verify" title="Pairing-check each round's key exchange against the MPC network's public key and recompute its draws from get_roll_input" disabled>Verify</button></h2>
-    <div class="ledger" id="rolls"></div>
-    <details class="spec">
-      <summary>How a draw is derived</summary>
-      <div class="chain" aria-label="How each number is drawn">
-        <span class="link"><i>preimage</i><b>input&middot;draw&middot;drawn&middot;ckd</b></span>
-        <b class="arrow" aria-hidden="true">&rarr;</b>
-        <span class="link"><i>hash</i><b>sha256 &rarr; u256</b></span>
-        <b class="arrow" aria-hidden="true">&rarr;</b>
-        <span class="link"><i>reduce</i><b>mod numbers left</b></span>
-        <b class="arrow" aria-hidden="true">&rarr;</b>
-        <span class="drum sm"><span>7</span></span>
-      </div>
-      <dl>
-        <dt>ckd</dt><dd>The round's key exchange, all of it public and all of it hashed: <span class="mono">pk1, pk2</span>, an ElGamal app key the casino draws at random for the round alone (<span class="mono">s&middot;G1, s&middot;G2</span>, the scalar thrown away); <span class="mono">big_y</span>, the MPC network's ephemeral key; and <span class="mono">big_c</span>, its derived key for <span class="mono">(contract, path)</span> encrypted to <span class="mono">pk1</span>. Nobody can open it, and nobody needs to: <span class="mono">e(pk1, G2) = e(G1, pk2)</span> and <span class="mono">e(big_c, G2) = e(H(mpk &#8214; app_id), mpk) &middot; e(big_y, pk2)</span> hold for the exchange. The MPC contract checks both before answering; <b>Verify</b> checks them again. One per round.</dd>
-        <dt>path</dt><dd><span class="mono">round-N</span> for game 0, <span class="mono">game-G-round-N</span> otherwise.</dd>
-        <dt>input</dt><dd>The round's public data from <span class="mono">get_roll_input</span>: game, round, limits, pot, every bet.</dd>
-        <dt>draw, drawn</dt><dd>This draw's index and the numbers already out &mdash; what gives each number a preimage of its own.</dd>
-        <dt>reduce</dt><dd>Over the numbers still in the drum, so a repeat is reconsidered rather than drawn twice. One number decides a single-outcome game; bingo draws until a card fills.</dd>
-        <dt>&#10003;</dt><dd>Set by <b>Verify</b>. Green: the key exchange passed both pairing checks against the MPC network's public key and every number of the round recomputed from the contract's own inputs. Amber: the numbers recomputed but the pairing library did not load.</dd>
-      </dl>
-    </details>
-  </section>
-</main>
 <div class="toast" id="toast"></div>
 
-<script src="js/app.js"></script>
+<script src="js/common.js"></script>
+<script src="js/lobby.js"></script>
 <script src="js/sha256-shim.js"></script>
 <script type="module" src="js/wallet.js"></script>
-<script type="module" src="js/ckd.js"></script>
 </body>
 </html>

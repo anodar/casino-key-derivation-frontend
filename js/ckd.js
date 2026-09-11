@@ -1,9 +1,12 @@
-// Checks a round's key exchange in the browser, the two pairings the MPC
+// Checks a round's key exchange in the browser. The two pairings the MPC
 // contract ran before it answered: the round's app key is one scalar on both
 // generators, e(pk1, G2) = e(G1, pk2), and big_c is the derived key encrypted
 // to it under big_y, e(big_c, G2) = e(H(mpk ‖ app_id), mpk) · e(big_y, pk2).
-// Every input is public, so the seal no longer rests on the contracts having
-// done it.
+// Then what the casino published once the round had drawn: the secret sk is
+// that scalar, sk·G1 = pk1 and sk·G2 = pk2, and opens the ciphertext to the
+// recorded key, big_c − sk·big_y = key — so `key` is the network's derived key
+// for the round, the randomness every number was hashed from. Every input is
+// public, so none of it rests on the contracts having done it.
 import { bls12_381 as bls } from 'https://esm.sh/@noble/curves@1.9.7/bls12-381';
 import { sha3_256 } from 'https://esm.sh/@noble/hashes@1.8.0/sha3';
 
@@ -44,13 +47,25 @@ async function mpcKey() {
 
 const g1 = s => bls.G1.ProjectivePoint.fromHex(keyBytes(s, 'bls12381g1:', 48));
 const g2 = s => bls.G2.ProjectivePoint.fromHex(keyBytes(s, 'bls12381g2:', 96));
+// The secret as the contract publishes it: 32 bytes of big-endian hex, reduced.
+const scalar = hex => { if (!/^[0-9a-f]{64}$/.test(hex)) throw new Error('sk is not 32 bytes of hex'); return BigInt('0x' + hex); };
+// Three verdicts, each on its own: `ckd` for the exchange the network answered,
+// `secret` for the scalar behind the app key, `opened` for the key it reveals.
 window.verifyKey = async (account, path, ckd) => {
   const { bytes, point } = await mpcKey();
   const F = bls.fields.Fp12, G1 = bls.G1.ProjectivePoint.BASE, G2 = bls.G2.ProjectivePoint.BASE;
-  const pk2 = g2(ckd.pk2);
-  if (!F.eql(bls.pairing(g1(ckd.pk1), G2), bls.pairing(G1, pk2))) return false;
+  const pk1 = g1(ckd.pk1), pk2 = g2(ckd.pk2), bigY = g1(ckd.big_y), bigC = g1(ckd.big_c);
   const appId = sha3_256(new TextEncoder().encode(`${APP_ID_PREFIX}${account},${path}`));
   const h = bls.G1.hashToCurve(new Uint8Array([...bytes, ...appId]), { DST });
-  return F.eql(bls.pairing(g1(ckd.big_c), G2), F.mul(bls.pairing(h, point), bls.pairing(g1(ckd.big_y), pk2)));
+  const appKey = F.eql(bls.pairing(pk1, G2), bls.pairing(G1, pk2));
+  const out = { ckd: appKey && F.eql(bls.pairing(bigC, G2), F.mul(bls.pairing(h, point), bls.pairing(bigY, pk2))),
+    secret: null, opened: null };
+  if (ckd.sk == null) return out; // settled before the secret was published: nothing to open it with
+  const s = scalar(ckd.sk);
+  out.secret = out.opened = false;
+  if (s === 0n || s >= bls.fields.Fr.ORDER) return out;
+  out.secret = G1.multiply(s).equals(pk1) && G2.multiply(s).equals(pk2);
+  out.opened = bigC.subtract(bigY.multiply(s)).equals(g1(ckd.key));
+  return out;
 };
 window.dispatchEvent(new Event('ckd-ready'));
