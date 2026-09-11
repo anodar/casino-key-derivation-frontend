@@ -302,6 +302,7 @@
     border: 1px dashed var(--line); font: 700 11px/1 system-ui, sans-serif; color: transparent; }
   .seal.ok { border: 1px solid var(--green); color: var(--green); box-shadow: 0 0 0 3px rgba(60, 207, 122, .12); }
   .seal.bad { border: 1px solid var(--red); color: var(--red); }
+  .seal.part { border: 1px solid var(--gold); color: var(--gold); }
   /* The derivation as a flow rather than a paragraph. */
   .chain { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-top: 14px;
     padding-top: 14px; border-top: 1px solid var(--line); }
