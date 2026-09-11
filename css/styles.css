@@ -103,6 +103,18 @@
   .grid.rolling button { animation: candidate 1.4s ease-in-out infinite; }
   @keyframes candidate { 50% { border-color: var(--gold-2); background: #452a71; } }
   .grid.locked button { cursor: default; }
+  /* Dice: each button is a face. The die is cream with felt-coloured pips, and
+     a picked one turns its pips gold so the choice shows without a numeral. */
+  .die rect { fill: #f4f1e8; stroke: rgba(0, 0, 0, .28); stroke-width: 2; }
+  .die circle { fill: var(--felt-2); }
+  .die.mini { width: 22px; height: 22px; vertical-align: middle; margin-right: 3px; }
+  .grid.dice { max-width: 420px; }
+  .grid.dice button { padding: 12%; }
+  .grid.dice .die { display: block; width: 100%; height: 100%; }
+  .grid.dice button.sel { background: var(--gold); }
+  .grid.dice button.sel .die circle { fill: var(--gold-2); }
+  .grid.dice button.sel .die rect { stroke: #8a6512; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   /* One line above the board carrying what the board cannot show by itself:
      what the round is doing, and which card is yours. */
   .board-live { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-height: 32px; margin-bottom: 2px;
@@ -296,6 +308,32 @@
   /* The landed face keeps a soft halo so the result stays readable after the toss. */
   .res-coin.flip .coin3d::after { content: ''; position: absolute; inset: -7px; border-radius: 50%;
     border: 2px solid var(--gold); opacity: 0; animation: win-ring .4s ease-out 1.85s both; }
+  /* Result die: thrown from below, tumbling as it goes up and slowing as it
+     drops, with the pips of the rolled face coming up as it stops. */
+  .res-die { position: relative; width: 100%; max-width: 248px; height: 186px; margin: 2px auto 0;
+    display: grid; place-items: center; }
+  .res-die .die.big { display: block; width: 116px; height: 116px; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .35)); }
+  .die-shadow { position: absolute; bottom: 14px; left: 50%; width: 110px; height: 16px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(0, 0, 0, .55), transparent); transform: translateX(-50%); }
+  .res-die.roll .tumble { animation: die-tumble 1.6s cubic-bezier(.22, .7, .3, 1) both; }
+  @keyframes die-tumble {
+    0% { transform: translateY(36px) rotate(0deg) scale(.7); }
+    45% { transform: translateY(-46px) rotate(430deg) scale(1.08); }
+    78% { transform: translateY(0) rotate(700deg) scale(1); }
+    88% { transform: translateY(-7px) rotate(712deg); }
+    100% { transform: translateY(0) rotate(720deg); }
+  }
+  .res-die.roll .die-shadow { animation: die-shadow 1.6s ease-in-out both; }
+  @keyframes die-shadow {
+    0% { transform: translateX(-50%) scale(.8); opacity: .45; }
+    45% { transform: translateX(-50%) scale(.5); opacity: .15; }
+    78%, 100% { transform: translateX(-50%) scale(1); opacity: .5; }
+  }
+  .res-die.roll .die circle { transform-box: fill-box; transform-origin: center; animation: pips-in .35s ease-out 1.2s both; }
+  @keyframes pips-in { from { opacity: 0; transform: scale(.4); } to { opacity: 1; } }
+  .res-die.roll .tumble::after { content: ''; position: absolute; inset: -8px; border-radius: 26px;
+    border: 2px solid var(--gold); opacity: 0; animation: win-ring .4s ease-out 1.55s both; }
+  .res-die .tumble { position: relative; }
   /* ---- labelled values in place of sentences ---- */
   .metas { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .metas.center { justify-content: center; }
@@ -447,6 +485,8 @@
     .res-wheel.spin .slot.win .ring { animation: none; opacity: 1; }
     .res-coin.flip .coin3d, .res-coin.flip .toss, .res-coin.flip .coin-shadow { animation: none; }
     .res-coin.flip .coin3d::after { animation: none; opacity: 1; }
+    .res-die.roll .tumble, .res-die.roll .die-shadow, .res-die.roll .die circle { animation: none; }
+    .res-die.roll .tumble::after { animation: none; opacity: 1; }
     .btn::after, .btn.pulse { animation: none; }
     .goal .bar.hot, .goal .bar.hot > div { animation: none; box-shadow: none; filter: none; }
     .meta.win { animation: none; }
