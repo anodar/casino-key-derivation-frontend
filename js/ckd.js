@@ -1,6 +1,9 @@
-// Checks a round's key in the browser: e(big_c, G2) = e(H(mpk ‖ app_id), mpk),
-// the pairing the MPC contract ran before it returned the key. Every input is
-// public, so the seal no longer rests on the contracts having done it.
+// Checks a round's key exchange in the browser, the two pairings the MPC
+// contract ran before it answered: the round's app key is one scalar on both
+// generators, e(pk1, G2) = e(G1, pk2), and big_c is the derived key encrypted
+// to it under big_y, e(big_c, G2) = e(H(mpk ‖ app_id), mpk) · e(big_y, pk2).
+// Every input is public, so the seal no longer rests on the contracts having
+// done it.
 import { bls12_381 as bls } from 'https://esm.sh/@noble/curves@1.9.7/bls12-381';
 import { sha3_256 } from 'https://esm.sh/@noble/hashes@1.8.0/sha3';
 
@@ -39,11 +42,15 @@ async function mpcKey() {
   return mpk;
 }
 
-window.verifyKey = async (account, path, bigC) => {
+const g1 = s => bls.G1.ProjectivePoint.fromHex(keyBytes(s, 'bls12381g1:', 48));
+const g2 = s => bls.G2.ProjectivePoint.fromHex(keyBytes(s, 'bls12381g2:', 96));
+window.verifyKey = async (account, path, ckd) => {
   const { bytes, point } = await mpcKey();
+  const F = bls.fields.Fp12, G1 = bls.G1.ProjectivePoint.BASE, G2 = bls.G2.ProjectivePoint.BASE;
+  const pk2 = g2(ckd.pk2);
+  if (!F.eql(bls.pairing(g1(ckd.pk1), G2), bls.pairing(G1, pk2))) return false;
   const appId = sha3_256(new TextEncoder().encode(`${APP_ID_PREFIX}${account},${path}`));
   const h = bls.G1.hashToCurve(new Uint8Array([...bytes, ...appId]), { DST });
-  const c = bls.G1.ProjectivePoint.fromHex(keyBytes(bigC, 'bls12381g1:', 48));
-  return bls.fields.Fp12.eql(bls.pairing(c, bls.G2.ProjectivePoint.BASE), bls.pairing(h, point));
+  return F.eql(bls.pairing(g1(ckd.big_c), G2), F.mul(bls.pairing(h, point), bls.pairing(g1(ckd.big_y), pk2)));
 };
 window.dispatchEvent(new Event('ckd-ready'));

@@ -662,15 +662,17 @@ function renderLast(r) {
       ? coinFlip(roll) + cap
       : `<div class="roll">${label(roll)}</div>` + cap)
     + (rows ? `<div class="tscroll"><table><tbody>${rows}</tbody></table></div>` : '')
-    + `<div class="metas" style="margin-top:10px">${keyChip(r.big_c)}</div>`;
+    + `<div class="metas" style="margin-top:10px">${keyChip(r.ckd.big_y)}${keyChip(r.ckd.big_c)}</div>`;
 }
 
-// Check a settled round in two halves, on the Verify button. The key: `big_c`
-// pairing-checked as the MPC network's derived key for this round's path
-// (js/ckd.js; null when that module could not load). The draws: every number
-// recomputed from the stored preimages. The key order of the JSON is what the contract hashes, so `input`
-// goes in as it came off the RPC and the three per-draw fields follow it. One
-// key for the round: `draw` and `drawn` are what make each preimage its own.
+// Check a settled round in two halves, on the Verify button. The key: the
+// round's exchange pairing-checked as the MPC network's derived key for this
+// round's path, encrypted to the round's own app key (js/ckd.js; null when that
+// module could not load). The draws: every number recomputed from the stored
+// preimages. The key order of the JSON is what the contract hashes, so `input`
+// goes in as it came off the RPC, then `draw`, `drawn` and the exchange field
+// by field. One exchange for the round: `draw` and `drawn` are what make each
+// preimage its own.
 const derivationPath = (g, i) => g === 0 ? `round-${i}` : `game-${g}-round-${i}`;
 const verified = new Map();
 // js/ckd.js is a module, so it lands after this script: wait for it a little
@@ -689,7 +691,7 @@ window.addEventListener('ckd-ready', () => {
 });
 async function checkKey(g, i, record) {
   if (!(await ckdReady) || !record) return null;
-  try { return await window.verifyKey(CONTRACT, derivationPath(g, i), record.big_c); } catch (e) { return null; }
+  try { return await window.verifyKey(CONTRACT, derivationPath(g, i), record.ckd); } catch (e) { return null; }
 }
 async function verifyRoll(g, i, record) {
   const key = `${g}:${i}`;
@@ -700,11 +702,12 @@ async function verifyRoll(g, i, record) {
   }
   try {
     const input = await view('get_roll_input', { round_id: i, game_id: g });
-    if (!input || !record.draws.length || !record.big_c) return null;
+    if (!input || !record.draws.length || !record.ckd) return null;
     const drawn = [];
     let draws = true;
     for (let d = 0; draws && d < record.draws.length; d++) {
-      const preimage = JSON.stringify({ input, draw: d, drawn: [...drawn], big_c: record.big_c });
+      const { pk1, pk2, big_y, big_c } = record.ckd;
+      const preimage = JSON.stringify({ input, draw: d, drawn: [...drawn], ckd: { pk1, pk2, big_y, big_c } });
       const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(preimage)));
       let r = 0n; for (const b of hash) r = (r << 8n) | BigInt(b);
       const left = [];
@@ -724,9 +727,9 @@ function sealFor(el, v) {
   el.textContent = ok || part ? '✓' : '✗';
   el.className = 'seal ' + (ok ? 'ok' : part ? 'part' : 'bad');
   el.title = !v.draws ? 'A recomputed draw does not match!'
-    : v.key === false ? 'big_c is not the MPC network\'s derived key for this round!'
+    : v.key === false ? 'big_c is not the MPC network\'s derived key for this round, encrypted to its app key!'
     : v.key === null ? 'Every draw recomputed; the key could not be pairing-checked (module not loaded)'
-    : 'Key pairing-checked against the MPC network\'s public key, every draw recomputed from get_roll_input';
+    : 'Key exchange pairing-checked against the MPC network\'s public key, every draw recomputed from get_roll_input';
 }
 
 const rollCache = new Map();
@@ -740,7 +743,7 @@ async function renderRolls(currentRound) {
   ledger = ids.filter(i => { const r = rollCache.get(key(i)); return r && r.draws.length; });
   $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i)); const drew = r && r.draws.length;
     return `<div class="lrow"><span class="rid">#${i}</span>`
-      + (drew ? `<span class="seal" id="v-${g}-${i}">✓</span>` + drumRow(r.draws) + keyChip(r.big_c)
+      + (drew ? `<span class="seal" id="v-${g}-${i}">✓</span>` + drumRow(r.draws) + keyChip(r.ckd.big_c)
               : `<span class="dash">—</span>`) + `</div>`; }).join('')
     || '<div class="empty">No draws yet.</div>';
   // Seals stay empty until Verify; rounds it already checked keep theirs.
