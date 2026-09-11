@@ -11,17 +11,22 @@ try {
       explorerUrl: EXPLORER, indexerUrl: 'https://testnet-api.kitwallet.app' },
     modules: [setupMyNearWallet(), setupMeteorWallet()],
   });
-  // `place_bet` is the only method a player calls, and its deposit means the
-  // wallet approves every one: a function-call key cannot attach NEAR.
+  // Signing in leaves a function-call key for `place_bet` in the browser, so a
+  // bet paid from chips (no deposit attached) is signed here without the
+  // wallet. Anything that moves NEAR — a deposit, a withdrawal, a bet the chips
+  // do not cover — goes to the wallet to approve.
   const modal = setupModal(selector, { contractId: CONTRACT, methodNames: ['place_bet'] });
+  const call = async (methodName, args, deposit, gas) => (await selector.wallet()).signAndSendTransaction({
+    receiverId: CONTRACT,
+    actions: [{ type: 'FunctionCall', params: { methodName, args, gas, deposit } }],
+  });
   const sync = state => setAccount((state.accounts.find(a => a.active) || {}).accountId || null);
   walletApi = {
     show: async () => modal.show(),
     signOut: async () => (await selector.wallet()).signOut(),
-    bet: async (numbers, game_id, deposit) => (await selector.wallet()).signAndSendTransaction({
-      receiverId: CONTRACT,
-      actions: [{ type: 'FunctionCall', params: { methodName: 'place_bet', args: { numbers, game_id }, gas: GAS, deposit } }],
-    }),
+    bet: (numbers, game_id, amount, deposit) => call('place_bet', { numbers, game_id, amount }, deposit, GAS),
+    deposit: amount => call('deposit', {}, amount, BANK_GAS),
+    withdraw: () => call('withdraw', {}, '0', BANK_GAS),
   };
   sync(selector.store.getState());
   selector.store.observable.subscribe(sync);

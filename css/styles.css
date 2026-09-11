@@ -205,6 +205,11 @@
   .step:active { background: var(--gold-2); }
   .step:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
   .amount-label { flex: none; }
+  .amount.sm { height: 34px; }
+  .amount.sm input[type=number] { width: 58px; font-size: 14px; }
+  /* Chips under the bet line: what is parked in the casino, and the two moves
+     that change it. Only shown once the contract has answered for the account. */
+  .bank { justify-content: center; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
   .roll { font-size: 72px; font-weight: 800; color: var(--gold); line-height: 1; text-align: center; margin: 6px 0 10px; }
   /* The game's wheel: the bet form and the result in one. It is thrown
      clockwise and left with the rolled slot under the pointer, overrunning the

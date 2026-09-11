@@ -21,6 +21,8 @@ const MPC_CONTRACT = 'v1.signer-prod.testnet';
 // The closing bet pays for the CKD request and for the callback that draws the
 // whole round, so every bet asks for the most a transaction may prepay.
 const GAS = '300000000000000';
+// A deposit or a withdrawal is a balance update and one transfer.
+const BANK_GAS = '30000000000000';
 const POLL_MS = 8000;
 const BRAND = 'Casino Key Derivation';
 // One page per game, by kind: a game's id is a contract detail, its kind is

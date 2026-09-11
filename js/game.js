@@ -145,6 +145,24 @@ if ($('clear')) $('clear').onclick = () => { selected = []; syncPicks(); };
 
 // ---- betting ----
 let selected = [], round = null, lastSeenRound = null, lastResult = null, snapshot = null;
+// Chips: the player's NEAR held by the contract, which a bet is paid from
+// without the wallet. Null until the contract has answered for this account
+// (or when it has no balances, before the migration): then the bank is hidden
+// and every bet attaches its stake, the way it always did.
+let chips = null;
+function renderChips() {
+  $('bank').hidden = chips === null || !accountId;
+  $('chips').textContent = chips === null ? '–' : fmtNear(chips);
+  $('withdraw').disabled = !chips;
+}
+async function loadChips() {
+  if (!accountId) chips = null;
+  else try { chips = BigInt(await view('get_balance', { account_id: accountId })); }
+  catch (e) { chips = null; }
+  renderChips(); updateBetButton();
+}
+document.addEventListener('account', loadChips);
+const covered = stake => chips !== null && chips >= stake;
 // The contract takes one bet per player per round, so this is your whole stake
 // in it.
 const myBet = () => round && accountId ? round.bets.find(b => b.player === accountId) : null;
@@ -165,18 +183,43 @@ function updateBetButton() {
     : !open ? meta('bets', 'closed')
     : mine ? meta('your stake', fmtNear(mine.amount), 'gold') + meta('next bet', 'when this round settles')
     : meta('min bet', fmtNear(round.min_bet), 'gold')
-      + (picks > 1 ? meta('pick', `${picks} of ${game().outcomes}`) : '');
+      + (picks > 1 ? meta('pick', `${picks} of ${game().outcomes}`) : '')
+      + (chips === null ? '' : meta('pays from', covered(BigInt(toYocto($('amount').value || 0))) ? 'chips' : 'wallet'));
 }
 document.addEventListener('account', updateBetButton);
+$('amount').addEventListener('input', updateBetButton);
+// The sign-in key pays the gas of every bet from a fixed allowance (0.25 NEAR
+// by default); when it runs dry the wallet has to issue another.
+function afterTx(e) {
+  const msg = e.message || String(e);
+  toast(/allowance/i.test(msg) ? 'Your sign-in key is out of gas allowance: sign out and connect again.' : msg, true);
+}
 $('bet').onclick = async () => {
-  const amount = $('amount').value;
-  if (round && BigInt(toYocto(amount)) < BigInt(round.min_bet)) return toast(`Minimum bet is ${fmtNear(round.min_bet)}`, true);
+  const stake = BigInt(toYocto($('amount').value));
+  if (round && stake < BigInt(round.min_bet)) return toast(`Minimum bet is ${fmtNear(round.min_bet)}`, true);
+  // Chips first, the wallet for the rest: a bet the chips cover is signed in
+  // the browser; one they do not sends the shortfall as the deposit, which
+  // redirect wallets (MyNearWallet) leave the page for and return with
+  // ?transactionHashes, and popup wallets (Meteor) resolve in place.
+  const fromChips = chips === null ? 0n : (chips < stake ? chips : stake);
   try {
-    // Redirect wallets (MyNearWallet) navigate away here and return with ?transactionHashes;
-    // popup wallets (Meteor) resolve in place.
-    const outcome = await walletApi.bet(selected, gameId, toYocto(amount));
-    if (outcome) { toast('Bet placed.'); showBalance(); poll(); }
-  } catch (e) { toast(e.message || String(e), true); }
+    const outcome = await walletApi.bet(selected, gameId, fromChips ? fromChips.toString() : null, (stake - fromChips).toString());
+    if (outcome) { toast('Bet placed.'); showBalance(); loadChips(); poll(); }
+  } catch (e) { afterTx(e); }
+};
+$('deposit').onclick = async () => {
+  const amount = BigInt(toYocto($('bank-amount').value || 0));
+  if (!amount) return toast('Enter an amount to deposit', true);
+  try {
+    const outcome = await walletApi.deposit(amount.toString());
+    if (outcome) { toast('Chips deposited.'); showBalance(); loadChips(); }
+  } catch (e) { afterTx(e); }
+};
+$('withdraw').onclick = async () => {
+  try {
+    const outcome = await walletApi.withdraw();
+    if (outcome) { toast('Chips withdrawn.'); showBalance(); loadChips(); }
+  } catch (e) { afterTx(e); }
 };
 // ---- rendering ----
 // A bingo card: its numbers in order, as chips.
@@ -751,7 +794,7 @@ async function tick() {
 // shown once, then taken off the URL so a reload does not repeat it.
 if (params.get('transactionHashes')) {
   const h = params.get('transactionHashes').split(',')[0];
-  toast('Bet placed.'); $('last').insertAdjacentHTML('afterbegin', `<div class="hint">Your tx: <a target="_blank" href="${EXPLORER}/txns/${h}">${short(h)}</a></div>`);
+  toast('Transaction confirmed.'); $('last').insertAdjacentHTML('afterbegin', `<div class="hint">Your tx: <a target="_blank" href="${EXPLORER}/txns/${h}">${short(h)}</a></div>`);
 }
 if (params.get('errorCode')) toast('Wallet: ' + decodeURIComponent(params.get('errorMessage') || params.get('errorCode')), true);
 // Throws when the page is not on an http(s) origin (opened as file:// or data:).

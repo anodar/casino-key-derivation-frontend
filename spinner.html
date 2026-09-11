@@ -69,6 +69,16 @@
       <button class="btn" id="bet" disabled>Bet on –</button>
     </div>
     <div class="metas center" id="bet-hint" style="margin-top:10px"></div>
+    <!-- Chips: NEAR parked in the casino so a bet needs no wallet approval. -->
+    <div class="row bank" id="bank" hidden>
+      <span class="meta gold" title="NEAR deposited in the casino; bets come off it without the wallet"><i>chips</i><b id="chips">–</b></span>
+      <div class="amount sm">
+        <input type="number" id="bank-amount" min="0" step="0.5" value="1" inputmode="decimal" aria-label="Amount to deposit, in NEAR">
+        <span class="unit" aria-hidden="true">Ⓝ</span>
+      </div>
+      <button class="btn ghost mini" type="button" id="deposit" title="Move NEAR from your wallet into chips (the wallet approves this once)">Deposit</button>
+      <button class="btn ghost mini" type="button" id="withdraw" title="Send all your chips back to your wallet">Withdraw all</button>
+    </div>
   </section>
 
   <!-- Right rail: what the last round did, and the ones before it. -->
