@@ -1,58 +1,13 @@
-const params = new URLSearchParams(location.search);
-const CONTRACT = params.get('contract') || 'casino_key_derivation.testnet';
-// Public testnet RPCs rate-limit per IP (a 429 without CORS headers shows up as a
-// CORS error in the console). Rotate across independent providers on failure.
-const RPCS = params.get('rpc') ? [params.get('rpc')] : [
-  'https://rpc.testnet.fastnear.com',
-  'https://near-testnet.drpc.org',
-  'https://archival-rpc.testnet.fastnear.com',
-  'https://near-testnet.gateway.tatum.io',
-  'https://test.rpc.fastnear.com',
-];
-let rpcIndex = Math.floor(Math.random() * RPCS.length); // spread a room full of players
-const RPC = RPCS[0];
-const EXPLORER = 'https://testnet.nearblocks.io';
-// The closing bet pays for the CKD request and for the callback that draws the
-// whole round, so every bet asks for the most a transaction may prepay.
-const GAS = '300000000000000';
-const POLL_MS = 8000;
+// A game's table: the board to bet from, the round around it, the last result
+// and the ledger of draws. The page says which game it is for (body's
+// data-kind); the game's id is looked up on the contract, so the same page
+// serves any deployment (?contract=). Loads after js/common.js.
+const KIND = document.body.dataset.kind;
 // A draw lands about two blocks after the request, so a round in flight is
 // polled far more often than an open one: the board is the thing being watched.
 const POLL_FAST_MS = 2000;
-const BRAND = 'Casino Key Derivation';
-// null = the lobby; a number = that game's table.
-let gameId = params.has('game') ? Number(params.get('game')) : null;
-let games = [];
-
-const $ = id => document.getElementById(id);
-
-// ---- formatting ----
-const YOCTO = 10n ** 24n;
-function fmtNear(yocto, digits = 2) {
-  const v = BigInt(yocto);
-  const whole = v / YOCTO;
-  const frac = ((v % YOCTO) * 10n ** BigInt(digits)) / YOCTO;
-  return `${whole}.${frac.toString().padStart(digits, '0')} Ⓝ`;
-}
-function toYocto(near) {
-  const [w, f = ''] = String(near).split('.');
-  return (BigInt(w || 0) * YOCTO + BigInt((f + '0'.repeat(24)).slice(0, 24))).toString();
-}
-const short = s => s.length > 28 ? s.slice(0, 14) + '…' + s.slice(-10) : s;
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-// Stable per-account colour so the same player reads the same everywhere.
-const hue = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
-const explorerAccount = id => `${EXPLORER}/address/${encodeURIComponent(id)}`;
-// One pill for a NEAR account: colour dot, id, and a role label ("you", "contract").
-function tag(id, { kind = '', role = '', text = null } = {}) {
-  const mine = id === accountId && !kind;
-  const cls = ['tag', kind, mine ? 'you' : ''].filter(Boolean).join(' ');
-  const label = role || (mine ? 'you' : '');
-  const dot = kind === 'contract' ? 'var(--gold)' : `hsl(${hue(id)} 58% 58%)`;
-  return `<a class="${cls}" href="${explorerAccount(id)}" target="_blank" rel="noopener" title="${esc(id)}">`
-    + `<i style="background:${dot}"></i><b>${esc(text || short(id))}</b>`
-    + (label ? `<em>${esc(label)}</em>` : '') + `</a>`;
-}
+let gameId = null, games = [];
+const game = () => games.find(g => g.game_id === gameId);
 const label = n => { const g = game(); return g && g.labels ? g.labels[n] : String(n); };
 
 // A die face as pips rather than a numeral: outcome `n` is face `n + 1`, and
@@ -63,15 +18,13 @@ function dieFace(n, cls = '') {
   return `<svg class="die ${cls}" viewBox="0 0 100 100" aria-hidden="true"><rect x="3" y="3" width="94" height="94" rx="18"/>${pips}</svg>`;
 }
 const onDice = () => { const g = game(); return !!g && g.kind === 'Dice' && g.outcomes === 6; };
-// A value under a two-word label, instead of a sentence around it.
-const meta = (k, v, kind = '') => `<span class="meta ${kind}"><i>${esc(k)}</i><b>${v}</b></span>`;
 // A derived key as three swatches hued from thirds of it plus its first bytes:
 // enough to see that two rounds ran on different keys without reading the hex.
 function keyChip(k) {
   const w = Math.ceil(k.length / 3);
   const fp = [0, 1, 2].map(i => `<i style="background:hsl(${hue(k.slice(i * w, i * w + w))} 62% 58%)"></i>`).join('');
   return `<button type="button" class="keychip" data-key="${esc(k)}" title="${esc(k)}\nClick to copy">`
-    + `${fp}<b>${esc(k.slice(0, 8))}\u2026</b></button>`;
+    + `${fp}<b>${esc(k.slice(0, 8))}…</b></button>`;
 }
 document.addEventListener('click', e => {
   const c = e.target.closest('.keychip');
@@ -89,150 +42,11 @@ function drumRow(ns, cls = 'sm') {
     + `</span>`;
 }
 
-// ---- RPC views ----
-async function view(method, args = {}, account = CONTRACT) {
-  const body = JSON.stringify({ jsonrpc: '2.0', id: '1', method: 'query', params: {
-    request_type: 'call_function', finality: 'final', account_id: account, method_name: method,
-    args_base64: btoa(JSON.stringify(args)) } });
-  let lastErr;
-  for (let attempt = 0; attempt < RPCS.length * 2; attempt++) {
-    const url = RPCS[rpcIndex];
-    try {
-      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (json.error) throw new Error(JSON.stringify(json.error));
-      if (json.result.error) throw new Error(json.result.error); // contract panic: do not rotate
-      return JSON.parse(new TextDecoder().decode(new Uint8Array(json.result.result)));
-    } catch (e) {
-      lastErr = e;
-      if (e.message.startsWith('wasm execution failed') || e.message.includes('panicked')) throw e;
-      rpcIndex = (rpcIndex + 1) % RPCS.length;
-      await new Promise(r => setTimeout(r, 150 * (attempt + 1)));
-    }
-  }
-  throw lastErr;
-}
-
-// ---- wallet (driven by the wallet-selector module script below) ----
-let walletApi = null, accountId = null;
-function setAccount(id) {
-  if (id === accountId) return updateBetButton();
-  accountId = id;
-  renderWallet();
-}
-// Read once per page load (not on the poll timer): the balance is a
-// convenience, and every extra RPC call risks the rate limit.
-async function showBalance() {
-  $('balance').textContent = '';
-  if (!accountId) return;
-  try {
-    const res = await fetch(RPCS[rpcIndex], { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: '1', method: 'query', params: {
-        request_type: 'view_account', finality: 'final', account_id: accountId } }) });
-    const json = await res.json();
-    if (json.result) $('balance').textContent = fmtNear(json.result.amount);
-  } catch (e) { /* leave blank */ }
-}
-function renderWallet() {
-  $('account').innerHTML = accountId
-    ? tag(accountId, { role: 'you' })
-    : '<span class="tag off"><i style="background:var(--muted)"></i><b>not connected</b></span>';
-  showBalance();
-  $('connect').textContent = accountId ? 'Sign out' : 'Connect wallet';
-  updateBetButton();
-}
-$('connect').onclick = () => {
-  if (!walletApi) return;
-  (accountId ? walletApi.signOut() : walletApi.show()).catch(e => toast(e.message || String(e), true));
-};
-
-// ---- card art ----
-// Inline SVG rather than image files: the page is a single static file and the
-// art has to survive being served from anywhere.
-const ball = (cx, cy, r, fill, fg, n, cls) =>
-  `<g class="ball ${cls}"><circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>`
-  + `<ellipse cx="${cx - r * .48}" cy="${cy - r * .52}" rx="${r * .3}" ry="${r * .17}" fill="#fff" fill-opacity=".45" transform="rotate(-35 ${cx - r * .48} ${cy - r * .52})"/>`
-  + `<circle cx="${cx}" cy="${cy}" r="${r * .64}" fill="#fdfbf4" fill-opacity=".92"/>`
-  + `<text x="${cx}" y="${cy + 1}" text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="${(r * .72).toFixed(0)}" font-weight="800" fill="${fg}">${n}</text></g>`;
-
-// The eight-slot wheel, shared by the lobby card art and the result spinner.
-// Slot i owns the arc from i*45 degrees clockwise from the top; its middle is
-// what the pointer has to end up over.
-const SLOTS = 8, SLICE = 360 / 8, SLOT_COLS = ['#f2c14e', '#7a4fb6', '#e05a5a', '#3ccf7a'];
-// Ink per slot colour: dark reads well on all of them except the purple.
-const SLOT_INK = ['#2a1748', '#f6f2ea', '#2a1748', '#2a1748'];
-const slotMid = i => i * SLICE + SLICE / 2;
-const onRim = (cx, cy, r, deg) => { const t = (deg - 90) * Math.PI / 180; return `${(cx + r * Math.cos(t)).toFixed(1)} ${(cy + r * Math.sin(t)).toFixed(1)}`; };
-const wedge = (cx, cy, r, i, attrs) =>
-  `<path d="M${cx} ${cy} L${onRim(cx, cy, r, i * SLICE)} A${r} ${r} 0 0 1 ${onRim(cx, cy, r, (i + 1) * SLICE)} Z" ${attrs}/>`;
-
-const wheelArt = (() => {
-  const cx = 100, cy = 64, r = 37;
-  const slices = Array.from({ length: SLOTS }, (_, i) =>
-    wedge(cx, cy, r, i, `fill="${SLOT_COLS[i % 4]}" fill-opacity=".92"`)).join('');
-  return `<svg class="art" viewBox="0 0 200 120" aria-hidden="true"><g class="wheel">`
-    + `<circle cx="${cx}" cy="${cy}" r="${r + 4}" fill="#2a1748"/>${slices}`
-    + `<circle cx="${cx}" cy="${cy}" r="9" fill="#2a1748" stroke="#f2c14e" stroke-width="3"/></g>`
-    + `<path d="M91 11 h18 l-9 20 z" fill="#f2c14e"/></svg>`;
-})();
-
-const ART = {
-  CoinFlip: `<svg class="art" viewBox="0 0 200 120" aria-hidden="true">
-    <defs><linearGradient id="art-coin" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe6a3"/><stop offset="1" stop-color="#c8951c"/></linearGradient></defs>
-    <g fill="none" stroke="#f2c14e" stroke-width="2" stroke-linecap="round" opacity=".4">
-      <path d="M66 88a38 30 0 0 1 68 0" stroke-dasharray="3 8"/>
-      <path d="M50 99a56 42 0 0 1 100 0" stroke-dasharray="3 10" opacity=".55"/>
-    </g>
-    <g class="coin">
-      <circle cx="100" cy="54" r="33" fill="url(#art-coin)"/>
-      <circle cx="100" cy="54" r="26" fill="none" stroke="#8a6512" stroke-opacity=".5" stroke-width="2"/>
-      <text x="100" y="55" text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="30" font-weight="800" fill="#7a5a0d">N</text>
-    </g></svg>`,
-  CrazySpinner: wheelArt,
-  Bingo: `<svg class="art" viewBox="0 0 200 120" aria-hidden="true">
-    ${ball(58, 78, 21, '#8f7ec4', '#2a1748', 7, 'b1')}
-    ${ball(142, 78, 21, '#e05a5a', '#4a1414', 99, 'b3')}
-    ${ball(100, 50, 26, '#f2c14e', '#5c4306', 42, 'b2')}</svg>`,
-  _: `<svg class="art" viewBox="0 0 200 120" aria-hidden="true"><g class="ball b1">
-    <rect x="68" y="28" width="64" height="64" rx="15" fill="#f4f1e8"/>
-    <g fill="#3b2262"><circle cx="86" cy="46" r="6"/><circle cx="114" cy="46" r="6"/><circle cx="100" cy="60" r="6"/><circle cx="86" cy="74" r="6"/><circle cx="114" cy="74" r="6"/></g></g></svg>`,
-};
-
-// ---- games ----
-const game = () => games.find(g => g.game_id === gameId);
-const inLobby = () => gameId === null;
-
+// ---- the game ----
 function setGames(list) {
-  const key = l => JSON.stringify(l.map(g => [g.game_id, g.round_id, g.state, g.min_bet, g.threshold, g.outcomes, g.picks]));
-  const changed = key(list) !== key(games);
   games = list;
-  if (!inLobby() && !game()) gameId = null; // ?game= points at a game this contract does not have
-  if (inLobby()) { if (changed) renderLobby(); return; }
   renderGameHeader();
   if (grid.dataset.shape !== gridShape()) buildGrid();
-}
-
-function renderLobby() {
-  const el = $('game-grid');
-  el.innerHTML = games.map(g => `
-    <button class="game-card" data-game="${g.game_id}">
-      <div class="art-wrap">${ART[g.kind] || ART._}</div>
-      <div class="gc-body">
-        <div class="gc-top"><h3>${esc(g.name)}</h3><span class="chip">${g.picks > 1 ? `pick ${g.picks} of ${g.outcomes}` : `${g.outcomes} outcomes`}</span>${g.default ? '<span class="chip feat">Featured</span>' : ''}</div>
-        <dl class="gc-meta" title="${esc(g.rules)}">
-          <div><dt>Round</dt><dd>#${g.round_id}</dd></div>
-          <div><dt>Min bet</dt><dd>${fmtNear(g.min_bet)}</dd></div>
-          <div><dt>Rolls at</dt><dd>${fmtNear(g.threshold)}</dd></div>
-        </dl>
-        <div class="gc-foot">${g.state === 'Open' ? '' : `<span class="badge ${g.state}">${g.state}</span>`}<span class="gc-play">Play</span></div>
-      </div>
-    </button>`).join('')
-    || `<div class="empty">${snapshot ? 'This contract has no games registered.' : 'Loading games…'}</div>`;
-  for (const b of el.querySelectorAll('.game-card')) b.onclick = () => go(Number(b.dataset.game));
-  if (snapshot) $('house').innerHTML = meta('games', games.length)
-    + meta('house cut', snapshot.cut_bps / 100 + '%')
-    + meta('collected', fmtNear(snapshot.house_gains), 'gold');
 }
 
 function renderGameHeader() {
@@ -244,52 +58,15 @@ function renderGameHeader() {
   $('rules-fold').hidden = !g;
 }
 
-function renderView() {
-  $('lobby').hidden = !inLobby();
-  $('game').hidden = inLobby();
-  $('home').hidden = inLobby();
-  if (inLobby()) { $('title-text').textContent = BRAND; document.title = BRAND; return renderLobby(); }
-  renderGameHeader();
-  if (game()) buildGrid();
-}
-
-function urlFor(id) {
-  const q = new URLSearchParams();
-  if (id !== null) q.set('game', id);
-  for (const k of ['contract', 'rpc']) if (params.get(k)) q.set(k, params.get(k));
-  return location.pathname + (q.toString() ? '?' + q : '');
-}
-
-// Throws when the page is not on an http(s) origin (opened as file:// or data:);
-// navigation still has to work there, just without the URL following along.
-function setUrl(id, push) {
-  try { history[push ? 'pushState' : 'replaceState']({ game: id }, '', urlFor(id)); } catch (e) { /* ignore */ }
-}
-
-// Enter a game (or the lobby, with id null) and reset everything round-scoped.
-function go(id, push = true) {
-  if (push && id === gameId) return;
-  gameId = id; selected = []; round = null; lastResult = null; lastSeenRound = null;
-  wheelLanded = null; wheelSpinning = false; clearTimeout(wheelTimer);
-  $('banner').classList.remove('show');
-  $('bets').innerHTML = ''; $('rolls').innerHTML = '';
-  if (push) setUrl(id, true);
-  scrollTo(0, 0);
-  renderView();
-  poll();
-}
-$('home').onclick = () => go(null);
-addEventListener('popstate', () => {
-  const p = new URLSearchParams(location.search);
-  go(p.has('game') ? Number(p.get('game')) : null, false);
-});
-
 const gridShape = () => { const g = game(); return g ? `${g.game_id}:${g.outcomes}:${g.picks}` : ''; };
 
 // The board a game is played on: the eight-slot wheel for Crazy Spinner, a
-// grid of numbers for everything else. Only one of the two is ever populated,
-// so everything that marks the board can address both without asking which.
+// grid of numbers for everything else. A page carries only the board its game
+// is played on; the other is a detached element, marked and rebuilt like the
+// real one and seen by nobody, so nothing that marks the board has to ask.
 const onWheel = () => { const g = game(); return !!g && g.kind === 'CrazySpinner' && g.outcomes === SLOTS; };
+const orDetached = id => $(id) || document.createElement('div');
+const grid = orDetached('numbers'), wheelBoard = orDetached('wheel-board'), pickTools = orDetached('pick-tools');
 
 function buildGrid() {
   const g = game(), n = g.outcomes, wheel = onWheel();
@@ -312,7 +89,7 @@ function buildGrid() {
       grid.appendChild(b);
     }
   }
-  $('pick-tools').hidden = g.picks < 2; // one number needs no filling aids
+  pickTools.hidden = g.picks < 2; // one number needs no filling aids
   syncPicks(); // rebuilding the board loses the classes but not the picks
 }
 
@@ -348,12 +125,13 @@ function syncPicks() {
   [...grid.children].forEach(c => c.classList.toggle('sel', selected.includes(+c.dataset.i)));
   for (const slot of wheelBoard.querySelectorAll('.slot')) slot.classList.toggle('sel', selected.includes(+slot.dataset.i));
   syncWheelCap();
-  $('pick-count').innerHTML = g && g.picks > 1 ? meta('picked', `${selected.length}/${g.picks}`) : '';
+  const count = $('pick-count'); if (count) count.innerHTML = g && g.picks > 1 ? meta('picked', `${selected.length}/${g.picks}`) : '';
   updateBetButton();
 }
 
 // Filling a card of six by hand is tedious; quick pick draws one at random.
-$('quick').onclick = () => {
+// Only bingo's page has the tools.
+if ($('quick')) $('quick').onclick = () => {
   const g = game();
   if (!g) return;
   const pool = [...Array(g.outcomes).keys()];
@@ -363,11 +141,10 @@ $('quick').onclick = () => {
   }
   syncPicks();
 };
-$('clear').onclick = () => { selected = []; syncPicks(); };
+if ($('clear')) $('clear').onclick = () => { selected = []; syncPicks(); };
 
 // ---- betting ----
 let selected = [], round = null, lastSeenRound = null, lastResult = null, snapshot = null;
-const grid = $('numbers'), wheelBoard = $('wheel-board');
 // The contract takes one bet per player per round, so this is your whole stake
 // in it.
 const myBet = () => round && accountId ? round.bets.find(b => b.player === accountId) : null;
@@ -390,6 +167,7 @@ function updateBetButton() {
     : meta('min bet', fmtNear(round.min_bet), 'gold')
       + (picks > 1 ? meta('pick', `${picks} of ${game().outcomes}`) : '');
 }
+document.addEventListener('account', updateBetButton);
 $('bet').onclick = async () => {
   const amount = $('amount').value;
   if (round && BigInt(toYocto(amount)) < BigInt(round.min_bet)) return toast(`Minimum bet is ${fmtNear(round.min_bet)}`, true);
@@ -451,7 +229,7 @@ function renderRound() {
   grid.classList.toggle('rolling', round.state === 'Rolling');
   grid.classList.toggle('locked', !open);
   syncWheel(counts, mine, open);
-  $('pick-tools').hidden = picks < 2 || !open; // nothing to pick while the drum turns
+  pickTools.hidden = picks < 2 || !open; // nothing to pick while the drum turns
   renderBoardLive(picks);
   renderMyCards(picks);
   updateBetButton();
@@ -685,17 +463,21 @@ function renderLast(r) {
       ? diceRoll(roll) + cap
       : `<div class="roll">${label(roll)}</div>` + cap)
     + (rows ? `<div class="tscroll"><table><tbody>${rows}</tbody></table></div>` : '')
-    + `<div class="metas" style="margin-top:10px">${keyChip(r.ckd.big_y)}${keyChip(r.ckd.big_c)}</div>`;
+    + `<div class="metas" style="margin-top:10px">${meta('key', keyChip(r.ckd.key || r.ckd.big_c))}</div>`;
 }
 
-// Check a settled round in two halves, on the Verify button. The key: the
-// round's exchange pairing-checked as the MPC network's derived key for this
-// round's path, encrypted to the round's own app key (js/ckd.js; null when that
-// module could not load). The draws: every number recomputed from the stored
-// preimages. The key order of the JSON is what the contract hashes, so `input`
-// goes in as it came off the RPC, then `draw`, `drawn` and the exchange field
-// by field. One exchange for the round: `draw` and `drawn` are what make each
-// preimage its own.
+// Check a settled round on the Verify button, in four parts, none of which
+// trusts either contract. The exchange: `big_c` pairing-checks as the MPC
+// network's derived key for this round's path, encrypted to the round's app
+// key (js/ckd.js; null when that module could not load). The secret: `sk`,
+// published once the round had drawn, is the scalar behind that app key and
+// opens `big_c` to the recorded `key` — the randomness itself. The draws: every
+// number recomputed from the stored preimages. The request: the casino asked
+// the MPC contract for this path exactly once, counted off the indexer (null
+// when it cannot be reached). The key order of the JSON is what the contract
+// hashes, so `input` goes in as it came off the RPC, then `draw`, `drawn` and
+// the exchange field by field. One exchange for the round: `draw` and `drawn`
+// are what make each preimage its own.
 const derivationPath = (g, i) => g === 0 ? `round-${i}` : `game-${g}-round-${i}`;
 const verified = new Map();
 // js/ckd.js is a module, so it lands after this script: wait for it a little
@@ -707,20 +489,49 @@ const ckdReady = new Promise(r => {
 });
 window.addEventListener('ckd-ready', () => {
   for (const [key, v] of verified) {
-    if (v.key !== null) continue;
+    if (v.ckd !== null) continue;
     const [g, i] = key.split(':').map(Number);
-    checkKey(g, i, rollCache.get(key)).then(k => { v.key = k; const el = document.getElementById(`v-${g}-${i}`); if (el) sealFor(el, v); });
+    checkKey(g, i, rollCache.get(key)).then(k => {
+      Object.assign(v, k || {});
+      const el = document.getElementById(`v-${g}-${i}`); if (el) sealFor(el, v);
+      renderVerifySummary();
+    });
   }
 });
+// The three cryptographic verdicts, or null when the module is not there.
 async function checkKey(g, i, record) {
   if (!(await ckdReady) || !record) return null;
   try { return await window.verifyKey(CONTRACT, derivationPath(g, i), record.ckd); } catch (e) { return null; }
 }
-async function verifyRoll(g, i, record) {
+// How many times the casino asked the MPC contract for each path, over the
+// account's whole history: a path asked for twice would let whoever asked pick
+// between two answers. Null when the indexer cannot be reached.
+async function ckdQueries() {
+  const counts = new Map();
+  let cursor = null;
+  try {
+    for (let page = 0; page < 8; page++) {
+      const res = await fetch(`${INDEXER}/v1/account/${CONTRACT}/receipts?to=${MPC_CONTRACT}`
+        + `&method=request_app_private_key&per_page=50${cursor ? '&cursor=' + cursor : ''}`);
+      if (!res.ok) throw new Error(`indexer HTTP ${res.status}`);
+      const json = await res.json();
+      for (const t of json.txns || []) for (const a of t.actions || []) {
+        if (a.method !== 'request_app_private_key') continue;
+        try { const p = JSON.parse(a.args).request.derivation_path; counts.set(p, (counts.get(p) || 0) + 1); }
+        catch (e) { /* a request this page cannot read is not one of the casino's */ }
+      }
+      cursor = json.cursor;
+      if (!cursor) break;
+    }
+  } catch (e) { return null; }
+  return counts;
+}
+async function verifyRoll(g, i, record, queries) {
   const key = `${g}:${i}`;
   const cached = verified.get(key);
-  if (cached) { // only the key half is retried: the module may have loaded since
-    if (cached.key === null) cached.key = await checkKey(g, i, record);
+  if (cached) { // only the halves that were unavailable are retried
+    if (cached.ckd === null) Object.assign(cached, (await checkKey(g, i, record)) || {});
+    if (cached.queries === null) cached.queries = queries;
     return cached;
   }
   try {
@@ -729,8 +540,8 @@ async function verifyRoll(g, i, record) {
     const drawn = [];
     let draws = true;
     for (let d = 0; draws && d < record.draws.length; d++) {
-      const { pk1, pk2, big_y, big_c } = record.ckd;
-      const preimage = JSON.stringify({ input, draw: d, drawn: [...drawn], ckd: { pk1, pk2, big_y, big_c } });
+      const { pk1, pk2, big_y, big_c, sk, key } = record.ckd;
+      const preimage = JSON.stringify({ input, draw: d, drawn: [...drawn], ckd: { pk1, pk2, big_y, big_c, sk, key } });
       const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(preimage)));
       let r = 0n; for (const b of hash) r = (r << 8n) | BigInt(b);
       const left = [];
@@ -738,21 +549,46 @@ async function verifyRoll(g, i, record) {
       draws = left[Number(r % BigInt(left.length))] === record.draws[d];
       drawn.push(record.draws[d]);
     }
-    const result = { draws, key: await checkKey(g, i, record) };
+    const result = { draws, ckd: null, secret: null, opened: null, queries, ...((await checkKey(g, i, record)) || {}) };
     verified.set(key, result);
     return result;
   } catch (e) { return null; }
 }
-// Green only when both halves hold; amber when the draws hold but the key
-// could not be checked here; red when either fails.
+// Each check as a verdict: true, false, or null for one that could not run.
+const CHECKS = [
+  ['draws', v => v.draws, 'every number recomputed from get_roll_input and the key', 'a recomputed draw does not match!', ''],
+  ['ckd', v => v.ckd, 'big_c pairing-checks as the MPC network\'s derived key for this round, encrypted to its app key',
+    'big_c is not the MPC network\'s derived key for this round!', 'the pairing library did not load'],
+  ['secret', v => v.secret, 'sk is the scalar behind pk1 and pk2', 'sk is not the secret of the round\'s app key!',
+    'no secret on record, or the pairing library did not load'],
+  ['opened', v => v.opened, 'big_c opened with sk is the recorded key', 'big_c does not open to the recorded key!',
+    'no secret on record, or the pairing library did not load'],
+  ['one query', v => v.queries === null ? null : v.queries === 1, 'the MPC contract was asked for this round\'s path once',
+    v => `the MPC contract was asked for this round's path ${v.queries} times!`, 'the indexer could not be reached'],
+];
+const verdicts = v => CHECKS.map(([name, of, ok, bad, none]) => {
+  const r = of(v);
+  return { name, r, text: r === true ? ok : r === false ? (typeof bad === 'function' ? bad(v) : bad) : none };
+});
+// Green only when every check holds; amber when none fails but some could not
+// run; red when any fails.
 function sealFor(el, v) {
-  const ok = v.draws && v.key === true, part = v.draws && v.key === null;
-  el.textContent = ok || part ? '✓' : '✗';
-  el.className = 'seal ' + (ok ? 'ok' : part ? 'part' : 'bad');
-  el.title = !v.draws ? 'A recomputed draw does not match!'
-    : v.key === false ? 'big_c is not the MPC network\'s derived key for this round, encrypted to its app key!'
-    : v.key === null ? 'Every draw recomputed; the key could not be pairing-checked (module not loaded)'
-    : 'Key exchange pairing-checked against the MPC network\'s public key, every draw recomputed from get_roll_input';
+  const vs = verdicts(v);
+  const bad = vs.some(x => x.r === false), part = vs.some(x => x.r === null);
+  el.textContent = bad ? '✗' : '✓';
+  el.className = 'seal ' + (bad ? 'bad' : part ? 'part' : 'ok');
+  el.title = vs.map(x => `${x.r === true ? '✓' : x.r === false ? '✗' : '–'} ${x.name}: ${x.text}`).join('\n');
+}
+// Under the ledger, the checks across every round it shows: how many passed.
+function renderVerifySummary() {
+  const el = $('verify-summary'), g = gameId;
+  const vs = ledger.map(i => verified.get(`${g}:${i}`)).filter(Boolean);
+  if (!vs.length) { el.innerHTML = ''; return; }
+  el.innerHTML = CHECKS.map(([name, of]) => {
+    const rs = vs.map(of), ok = rs.filter(r => r === true).length, bad = rs.some(r => r === false);
+    return meta(name, bad ? `${ok}/${vs.length} ✗` : rs.some(r => r === null) ? `${ok}/${vs.length} –` : `${ok}/${vs.length} ✓`,
+      bad ? 'warn' : ok === vs.length ? 'gold' : '');
+  }).join('');
 }
 
 const rollCache = new Map();
@@ -762,25 +598,28 @@ async function renderRolls(currentRound) {
   const g = gameId, key = i => `${g}:${i}`;
   const ids = []; for (let i = currentRound - 1; i >= 0 && ids.length < 8; i--) ids.push(i);
   for (const i of ids.filter(i => !rollCache.has(key(i)))) rollCache.set(key(i), await view('get_roll', { round_id: i, game_id: g })); // sequential: bursts get rate-limited
-  if (g !== gameId) return;
   ledger = ids.filter(i => { const r = rollCache.get(key(i)); return r && r.draws.length; });
   $('rolls').innerHTML = ids.map(i => { const r = rollCache.get(key(i)); const drew = r && r.draws.length;
     return `<div class="lrow"><span class="rid">#${i}</span>`
-      + (drew ? `<span class="seal" id="v-${g}-${i}">✓</span>` + drumRow(r.draws) + keyChip(r.ckd.big_c)
+      + (drew ? `<span class="seal" id="v-${g}-${i}">✓</span>` + drumRow(r.draws) + keyChip(r.ckd.key || r.ckd.big_c)
               : `<span class="dash">—</span>`) + `</div>`; }).join('')
     || '<div class="empty">No draws yet.</div>';
   // Seals stay empty until Verify; rounds it already checked keep theirs.
   for (const i of ledger) { const v = verified.get(key(i)); if (v) sealFor(document.getElementById(`v-${g}-${i}`), v); }
+  renderVerifySummary();
   $('verify').disabled = !ledger.length;
 }
 $('verify').onclick = async () => {
   const g = gameId, btn = $('verify');
   btn.disabled = true; btn.textContent = 'Verifying…';
   try {
+    const queries = await ckdQueries(); // one pass over the indexer for every round below
     for (const i of ledger) {
-      const v = await verifyRoll(g, i, rollCache.get(`${g}:${i}`));
+      const n = queries ? queries.get(derivationPath(g, i)) || null : null; // unseen: the window ran out, not proof of anything
+      const v = await verifyRoll(g, i, rollCache.get(`${g}:${i}`), n);
       const el = document.getElementById(`v-${g}-${i}`); if (el && v) sealFor(el, v);
     }
+    renderVerifySummary();
   } finally { btn.textContent = 'Verify'; btn.disabled = !ledger.length; }
 };
 
@@ -835,75 +674,42 @@ function celebrate() {
   })(start);
 }
 
-let toastTimer;
-function toast(msg, err = false) {
-  const t = $('toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 6000);
-}
-
-// ---- polling ----
-// Self-rescheduling rather than a fixed interval, so the tick can follow the
-// round: fast while the network is deriving keys, slow while bets come in, and
-// backing off after failures instead of hammering a rate-limited RPC.
-let failures = 0, polling = false, pollAgain = false, pollTimer = null;
-function pollDelay() {
-  if (failures) return POLL_MS * Math.min(failures, 7); // 8s, 16s, … ~56s
-  if (document.hidden) return POLL_MS;
-  const live = round && round.state !== 'Open';
-  return !inLobby() && live ? POLL_FAST_MS : POLL_MS;
-}
-function schedulePoll() {
-  clearTimeout(pollTimer);
-  pollTimer = setTimeout(poll, pollDelay());
-}
-async function poll() {
-  clearTimeout(pollTimer);
-  // One snapshot in flight at a time, so a slow reply cannot land after a newer
-  // one; a poll asked for meanwhile folds into it and runs the moment it ends.
-  if (polling) { pollAgain = true; return; }
-  if (document.hidden && games.length) return schedulePoll(); // background tab: keep the first load
-  polling = true;
-  const g = gameId;
-  try {
-    // One call per tick: games + round + last result. In the lobby only the
-    // games list is used, so it stays one call there too.
-    const snap = await view('get_snapshot', g === null ? {} : { game_id: g });
-    if (g !== gameId) return; // navigated away while this was in flight
-    snapshot = snap; setGames(snap.games);
-    if (inLobby()) { failures = 0; return; } // setGames redrew the cards if anything moved
-    const r = snap.round, last = snap.last_round;
-    round = r; renderRound();
-    if (last && (!lastResult || last.round_id !== lastResult.round_id)) {
-      if (lastResult !== null || lastSeenRound !== null) showBanner(last);
-      lastResult = last; renderLast(last); landWheel(last); rollCache.delete(`${g}:${last.round_id}`);
-    } else if (!last) renderLast(null);
-    if (lastSeenRound !== r.round_id) { lastSeenRound = r.round_id; await renderRolls(r.round_id); }
-    failures = 0; $('state').classList.remove('offline');
-  } catch (e) {
-    pollFailed(e);
-  } finally {
-    polling = false;
-    if (pollAgain) { pollAgain = false; poll(); } else schedulePoll();
+// ---- the tick ----
+// One call per tick: games + round + last result. The first tick has one more
+// to make, the games list that says which id this page's kind was registered
+// under; a contract without the game leaves the table dark.
+async function tick() {
+  if (gameId === null) {
+    const g = (await view('get_snapshot', {})).games.find(g => g.kind === KIND);
+    if (!g) {
+      stopPolling();
+      $('stage').innerHTML = `<div class="empty">This contract has no ${esc(KIND)} table. <a href="${pageUrl('index.html')}">Back to the lobby</a>.</div>`;
+      return;
+    }
+    gameId = g.game_id;
   }
-}
-function pollFailed(e) {
-  failures++;
-  $('state').classList.add('offline');
-  if (failures === 3) toast('RPC busy (rate limited), retrying with longer pauses', true);
+  const snap = await view('get_snapshot', { game_id: gameId });
+  snapshot = snap; setGames(snap.games);
+  const r = snap.round, last = snap.last_round;
+  round = r; renderRound();
+  if (last && (!lastResult || last.round_id !== lastResult.round_id)) {
+    if (lastResult !== null || lastSeenRound !== null) showBanner(last);
+    lastResult = last; renderLast(last); landWheel(last); rollCache.delete(`${gameId}:${last.round_id}`);
+  } else if (!last) renderLast(null);
+  if (lastSeenRound !== r.round_id) { lastSeenRound = r.round_id; await renderRolls(r.round_id); }
 }
 
 // ---- wallet redirect result ----
+// MyNearWallet comes back to this page with the outcome in the query string;
+// shown once, then taken off the URL so a reload does not repeat it.
 if (params.get('transactionHashes')) {
   const h = params.get('transactionHashes').split(',')[0];
   toast('Bet placed.'); $('last').insertAdjacentHTML('afterbegin', `<div class="hint">Your tx: <a target="_blank" href="${EXPLORER}/txns/${h}">${short(h)}</a></div>`);
-  setUrl(gameId, false);
-} else if (params.get('errorCode')) {
-  toast('Wallet: ' + decodeURIComponent(params.get('errorMessage') || params.get('errorCode')), true);
-  setUrl(gameId, false);
 }
+if (params.get('errorCode')) toast('Wallet: ' + decodeURIComponent(params.get('errorMessage') || params.get('errorCode')), true);
+// Throws when the page is not on an http(s) origin (opened as file:// or data:).
+if (params.get('transactionHashes') || params.get('errorCode')) try { history.replaceState(null, '', pageUrl(location.pathname)); } catch (e) { /* ignore */ }
 
-$('contract-id').innerHTML = tag(CONTRACT, { kind: 'contract', role: 'contract', text: CONTRACT });
-renderWallet();
-renderView();
-poll();
-document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+$('home').href = pageUrl('index.html');
+updateBetButton();
+startPolling(tick, () => round && round.state !== 'Open' ? POLL_FAST_MS : POLL_MS);
