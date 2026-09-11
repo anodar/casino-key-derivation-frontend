@@ -509,7 +509,7 @@ function renderLast(r) {
     + `<div class="metas" style="margin-top:10px">${meta('key', keyChip(r.ckd.key || r.ckd.big_c))}</div>`;
 }
 
-// Check a settled round on the Verify button, in four parts, none of which
+// Check a settled round on the Verify button, in five parts, none of which
 // trusts either contract. The exchange: `big_c` pairing-checks as the MPC
 // network's derived key for this round's path, encrypted to the round's app
 // key (js/ckd.js; null when that module could not load). The secret: `sk`,
@@ -517,11 +517,14 @@ function renderLast(r) {
 // opens `big_c` to the recorded `key` — the randomness itself. The draws: every
 // number recomputed from the stored preimages. The request: the casino asked
 // the MPC contract for this path exactly once, counted off the indexer (null
-// when it cannot be reached). The key order of the JSON is what the contract
+// when it cannot be reached). The bets: every bet of the round has its
+// place_bet receipt on the indexer no later than that request's block, so the
+// inputs were fixed while the key was unknown. The key order of the JSON is what the contract
 // hashes, so `input` goes in as it came off the RPC, then `draw`, `drawn` and
 // the exchange field by field. One exchange for the round: `draw` and `drawn`
 // are what make each preimage its own.
 const derivationPath = (g, i) => g === 0 ? `round-${i}` : `game-${g}-round-${i}`;
+const sameGame = (g, path) => (g === 0 ? /^round-\d+$/ : new RegExp(`^game-${g}-round-\\d+$`)).test(path);
 const verified = new Map();
 // js/ckd.js is a module, so it lands after this script: wait for it a little
 // rather than settle for a draws-only seal, and refresh such seals if it lands late.
@@ -546,35 +549,89 @@ async function checkKey(g, i, record) {
   if (!(await ckdReady) || !record) return null;
   try { return await window.verifyKey(CONTRACT, derivationPath(g, i), record.ckd); } catch (e) { return null; }
 }
-// How many times the casino asked the MPC contract for each path, over the
-// account's whole history: a path asked for twice would let whoever asked pick
-// between two answers. Null when the indexer cannot be reached.
-async function ckdQueries() {
-  const counts = new Map();
-  let cursor = null;
-  try {
-    for (let page = 0; page < 8; page++) {
-      const res = await fetch(`${INDEXER}/v1/account/${CONTRACT}/receipts?to=${MPC_CONTRACT}`
-        + `&method=request_app_private_key&per_page=50${cursor ? '&cursor=' + cursor : ''}`);
-      if (!res.ok) throw new Error(`indexer HTTP ${res.status}`);
-      const json = await res.json();
-      for (const t of json.txns || []) for (const a of t.actions || []) {
-        if (a.method !== 'request_app_private_key') continue;
-        try { const p = JSON.parse(a.args).request.derivation_path; counts.set(p, (counts.get(p) || 0) + 1); }
-        catch (e) { /* a request this page cannot read is not one of the casino's */ }
-      }
-      cursor = json.cursor;
-      if (!cursor) break;
-    }
-  } catch (e) { return null; }
-  return counts;
+// Pages of the casino's receipts off the indexer, newest first, down to the
+// receipt id `stop` or the page cap; `ended` says the history ran out first.
+// Ids are the indexer's own and monotonic across accounts, so they order the
+// casino's bets against its requests to the MPC contract.
+async function indexerPages(query, pages, stop = 0) {
+  const txns = []; let cursor = null;
+  for (let page = 0; page < pages; page++) {
+    const url = `${INDEXER}/v1/account/${CONTRACT}/receipts?${query}&per_page=50${cursor ? '&cursor=' + cursor : ''}`;
+    let res = await fetch(url);
+    if (res.status === 429) { await new Promise(r => setTimeout(r, 4000)); res = await fetch(url); } // a few calls a minute is the limit
+    if (!res.ok) throw new Error(`indexer HTTP ${res.status}`);
+    const json = await res.json();
+    txns.push(...(json.txns || []));
+    cursor = json.cursor;
+    if (!cursor) return { txns, ended: true };
+    if (txns.length && Number(txns[txns.length - 1].id) <= stop) break;
+  }
+  return { txns, ended: false };
 }
-async function verifyRoll(g, i, record, queries) {
+const argsOf = (t, method) => {
+  for (const a of t.actions || []) if (a.method === method) { try { return JSON.parse(a.args); } catch (e) { /* not one this page can read */ } }
+  return null;
+};
+// What the indexer knows that the two checks below need: every request the
+// casino made to the MPC contract (id, block, path), over the account's whole
+// history, and the bets placed with the casino back past the request before
+// the oldest of `rounds`. Null when the indexer cannot be reached.
+async function indexerEvidence(g, rounds) {
+  try {
+    const requests = (await indexerPages(`to=${MPC_CONTRACT}&method=request_app_private_key`, 8)).txns
+      .map(t => ({ id: Number(t.id), block: t.receipt_block.block_height, path: (argsOf(t, 'request_app_private_key')?.request || {}).derivation_path }))
+      .filter(r => r.path);
+    const firsts = rounds.map(i => Math.min(...requests.filter(r => r.path === derivationPath(g, i)).map(r => r.id))).filter(isFinite);
+    const stop = Math.max(0, ...requests.filter(r => sameGame(g, r.path) && r.id < Math.min(...firsts)).map(r => r.id));
+    const bets = await indexerPages('method=place_bet', 12, stop);
+    const defaultGame = (games.find(x => x.default) || {}).game_id; // a bet placed without a game_id went there
+    const placed = bets.txns.map(t => {
+      const a = argsOf(t, 'place_bet'); if (!a) return null;
+      return { id: Number(t.id), block: t.receipt_block.block_height, player: t.predecessor_account_id, ok: t.receipt_outcome?.status === true,
+        game: a.game_id ?? defaultGame, numbers: String(a.numbers || (a.number !== undefined ? [a.number] : '')) };
+    }).filter(Boolean);
+    return { requests, bets: placed, betsEnded: bets.ended };
+  } catch (e) { return null; }
+}
+// The indexer's two verdicts for a round: how often its path was asked for (a
+// path asked for twice would let whoever asked pick between two answers; null
+// when unseen, since the window ran out rather than proved anything) and
+// whether every bet was on chain before the first of those requests. A bet
+// matches its place_bet receipt by player, numbers and game between the game's
+// previous request and its next; a match after this round's request counts
+// only when there is none before it, as it may be the next round's bet.
+function indexerVerdicts(g, i, bets, ev) {
+  if (!ev) return { queries: null, placed: null, placedWhy: 'the indexer could not be reached' };
+  const own = ev.requests.filter(r => r.path === derivationPath(g, i));
+  const queries = own.length || null;
+  if (!own.length) return { queries, placed: null, placedWhy: 'no request for this round\'s path in the indexer window' };
+  const first = own.reduce((a, r) => r.id < a.id ? r : a);
+  const others = ev.requests.filter(r => sameGame(g, r.path)).map(r => r.id);
+  const prev = Math.max(0, ...others.filter(id => id < first.id)), next = Math.min(...others.filter(id => id > first.id));
+  const before = bets.map(() => null), after = bets.map(() => null);
+  let reached = ev.betsEnded;
+  for (const t of ev.bets) {
+    if (t.id <= prev) { reached = true; break; }
+    if (t.id >= next || !t.ok || t.game !== g) continue;
+    const seen = t.id < first.id ? before : after;
+    bets.forEach((b, k) => { if (seen[k] === null && b.player === t.player && String(b.numbers) === t.numbers) seen[k] = t.block; });
+  }
+  if (!reached && before.includes(null)) return { queries, placed: null, placedWhy: 'the indexer window ran out before every bet was found' };
+  let latest = 0;
+  for (const [k, b] of bets.entries()) {
+    const block = before[k] ?? after[k];
+    if (block === null) return { queries, placed: false, placedWhy: `no place_bet receipt from ${b.player} before the request at block ${first.block}!` };
+    if (block > first.block) return { queries, placed: false, placedWhy: `${b.player}'s bet landed at block ${block}, after the request at block ${first.block}!` };
+    latest = Math.max(latest, block);
+  }
+  return { queries, placed: true, placedWhy: `every bet was on chain by block ${latest}, the key was asked for at block ${first.block}` };
+}
+async function verifyRoll(g, i, record, ev) {
   const key = `${g}:${i}`;
   const cached = verified.get(key);
   if (cached) { // only the halves that were unavailable are retried
     if (cached.ckd === null) Object.assign(cached, (await checkKey(g, i, record)) || {});
-    if (cached.queries === null) cached.queries = queries;
+    if (ev && (cached.queries === null || cached.placed === null)) Object.assign(cached, indexerVerdicts(g, i, cached.bets, ev));
     return cached;
   }
   try {
@@ -592,7 +649,7 @@ async function verifyRoll(g, i, record, queries) {
       draws = left[Number(r % BigInt(left.length))] === record.draws[d];
       drawn.push(record.draws[d]);
     }
-    const result = { draws, ckd: null, secret: null, opened: null, queries, ...((await checkKey(g, i, record)) || {}) };
+    const result = { draws, ckd: null, secret: null, opened: null, bets: input.bets, ...indexerVerdicts(g, i, input.bets, ev), ...((await checkKey(g, i, record)) || {}) };
     verified.set(key, result);
     return result;
   } catch (e) { return null; }
@@ -610,10 +667,13 @@ const CHECKS = [
     v => `the MPC contract was asked for this round's path ${v.queries} times! The network derives the same key for the same path, `
       + 'and the earlier answer was published, so this round\'s randomness was knowable before it drew.',
     'the indexer could not be reached'],
+  ['bets first', v => v.placed, v => v.placedWhy,
+    v => `${v.placedWhy} The randomness hashes the bets together with the key, so a bet taken once the key was knowable could have steered the draw.`,
+    v => v.placedWhy],
 ];
 const verdicts = v => CHECKS.map(([name, of, ok, bad, none]) => {
-  const r = of(v);
-  return { name, r, text: r === true ? ok : r === false ? (typeof bad === 'function' ? bad(v) : bad) : none };
+  const r = of(v), text = t => typeof t === 'function' ? t(v) : t;
+  return { name, r, text: text(r === true ? ok : r === false ? bad : none) };
 });
 // Green only when every check holds; amber when none fails but some could not
 // run; red when any fails.
@@ -630,7 +690,7 @@ function sealFor(el, v) {
   el.tabIndex = 0;
   el.setAttribute('aria-label', vs.map(x => `${mark(x.r)} ${x.name}: ${x.text}`).join('. '));
 }
-// One tooltip for every seal: hover or focus a seal and the five verdicts open
+// One tooltip for every seal: hover or focus a seal and the six verdicts open
 // under it, the failing one in red, so a cross says what did not hold. Fixed to
 // the viewport so no card or scroll box can clip it.
 const vtip = document.createElement('div');
@@ -703,10 +763,9 @@ $('verify').onclick = async () => {
   const g = gameId, btn = $('verify');
   btn.disabled = true; btn.textContent = 'Verifying…';
   try {
-    const queries = await ckdQueries(); // one pass over the indexer for every round below
+    const ev = await indexerEvidence(g, ledger); // one pass over the indexer for every round below
     for (const i of ledger) {
-      const n = queries ? queries.get(derivationPath(g, i)) || null : null; // unseen: the window ran out, not proof of anything
-      const v = await verifyRoll(g, i, rollCache.get(`${g}:${i}`), n);
+      const v = await verifyRoll(g, i, rollCache.get(`${g}:${i}`), ev);
       const el = document.getElementById(`v-${g}-${i}`); if (el && v) sealFor(el, v);
     }
     renderVerifySummary();

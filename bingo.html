@@ -93,7 +93,7 @@
   </section>
 
   <section class="card rail" id="draws-card">
-    <h2><span>Recent draws</span> <button class="btn ghost mini" type="button" id="verify" title="Check each round: its key pairing-checked against the MPC network's public key, the published secret opening it, every draw recomputed, and the key asked for once" disabled>Verify</button></h2>
+    <h2><span>Recent draws</span> <button class="btn ghost mini" type="button" id="verify" title="Check each round: its key pairing-checked against the MPC network's public key, the published secret opening it, every draw recomputed, the key asked for once, and every bet placed before that" disabled>Verify</button></h2>
     <div class="ledger" id="rolls"></div>
     <div class="metas vsum" id="verify-summary"></div>
     <details class="spec">
@@ -113,7 +113,7 @@
         <dt>input</dt><dd>The round's public data from <span class="mono">get_roll_input</span>: game, round, limits, pot, every bet.</dd>
         <dt>draw, drawn</dt><dd>This draw's index and the numbers already out &mdash; what gives each number a preimage of its own.</dd>
         <dt>reduce</dt><dd>Over the numbers still in the drum, so a repeat is reconsidered rather than drawn twice. One number decides a single-outcome game; bingo draws until a card fills.</dd>
-        <dt>&#10003;</dt><dd>Set by <b>Verify</b>, four checks per round: <span class="mono">big_c</span> pairing-checks against the MPC network's public key as the derived key for the round's path; <span class="mono">sk</span> is the scalar behind <span class="mono">pk1, pk2</span> and opens <span class="mono">big_c</span> to <span class="mono">key</span>; every number recomputes from the preimage above; and the casino's receipts to the MPC contract, counted off the indexer, ask for the round's path exactly once. Green: all four hold. Amber: none fails, but the pairing library did not load or the indexer could not be reached. Red: one fails. Hover a seal for the verdicts.</dd>
+        <dt>&#10003;</dt><dd>Set by <b>Verify</b>, five checks per round: <span class="mono">big_c</span> pairing-checks against the MPC network's public key as the derived key for the round's path; <span class="mono">sk</span> is the scalar behind <span class="mono">pk1, pk2</span> and opens <span class="mono">big_c</span> to <span class="mono">key</span>; every number recomputes from the preimage above; the casino's receipts to the MPC contract, counted off the indexer, ask for the round's path exactly once; and every bet's <span class="mono">place_bet</span> receipt sits no later than that request's block, so the inputs were fixed while the key was unknown. Green: all five hold. Amber: none fails, but the pairing library did not load or the indexer could not be reached. Red: one fails. Hover a seal for the verdicts.</dd>
       </dl>
     </details>
   </section>
