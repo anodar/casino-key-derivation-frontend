@@ -54,6 +54,15 @@ function tag(id, { kind = '', role = '', text = null } = {}) {
     + (label ? `<em>${esc(label)}</em>` : '') + `</a>`;
 }
 const label = n => { const g = game(); return g && g.labels ? g.labels[n] : String(n); };
+
+// A die face as pips rather than a numeral: outcome `n` is face `n + 1`, and
+// PIPS says which of the nine spots of a 3x3 grid that face fills.
+const PIPS = [[4], [0, 8], [0, 4, 8], [0, 2, 6, 8], [0, 2, 4, 6, 8], [0, 2, 3, 5, 6, 8]];
+function dieFace(n, cls = '') {
+  const pips = PIPS[n].map(p => `<circle cx="${25 + (p % 3) * 25}" cy="${25 + Math.floor(p / 3) * 25}" r="8"/>`).join('');
+  return `<svg class="die ${cls}" viewBox="0 0 100 100" aria-hidden="true"><rect x="3" y="3" width="94" height="94" rx="18"/>${pips}</svg>`;
+}
+const onDice = () => { const g = game(); return !!g && g.kind === 'Dice' && g.outcomes === 6; };
 // A value under a two-word label, instead of a sentence around it.
 const meta = (k, v, kind = '') => `<span class="meta ${kind}"><i>${esc(k)}</i><b>${v}</b></span>`;
 // A derived key as three swatches hued from thirds of it plus its first bytes:
@@ -293,9 +302,12 @@ function buildGrid() {
     const cols = g.picks > 1 ? Math.round(Math.sqrt(n)) : Math.min(n, 10);
     grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
     grid.classList.toggle('big', n <= 2);
+    grid.classList.toggle('dice', onDice());
     for (let i = 0; i < n; i++) {
       const b = document.createElement('button');
-      b.textContent = label(i); b.dataset.i = i;
+      b.dataset.i = i;
+      if (onDice()) { b.innerHTML = dieFace(i); b.setAttribute('aria-label', label(i)); }
+      else b.textContent = label(i);
       b.onclick = () => pick(i);
       grid.appendChild(b);
     }
@@ -391,7 +403,8 @@ $('bet').onclick = async () => {
 // ---- rendering ----
 // A bingo card: its numbers in order, as chips.
 const cardNums = (numbers, picks) => picks < 2
-  ? esc(numbers.map(label).join(' '))
+  ? (onDice() ? numbers.map(n => dieFace(n, 'mini') + `<span class="sr">${esc(label(n))}</span>`).join('')
+              : esc(numbers.map(label).join(' ')))
   : `<span class="card-nums">` + [...numbers].sort((a, b) => a - b)
       .map(n => `<b>${esc(label(n))}</b>`).join('') + `</span>`;
 
@@ -616,6 +629,13 @@ function coinFlip(roll) {
     + `<div class="toss"><div class="coin3d">${face('heads', 0)}${face('tails', 1)}</div></div></div>`;
 }
 
+// Dice's result: the die is thrown, tumbles and comes to rest on the rolled
+// face. Its pips appear as it settles, so the face reads as landed, not drawn.
+function diceRoll(roll) {
+  return `<div class="res-die roll" role="img" aria-label="The die shows ${esc(label(roll))}">`
+    + `<div class="die-shadow"></div><div class="tumble">${dieFace(roll, 'big')}</div></div>`;
+}
+
 // Bingo's result: the numbers in the order they came out, the one that filled
 // a card ringed. The contract draws them all in one callback, so the balls pop
 // in one at a time here (`--i` is the CSS animation's place in the queue) —
@@ -652,7 +672,7 @@ function renderLast(r) {
     return;
   }
   const rows = r.payouts.map(p => `<tr><td>${tag(p.player)}</td><td>${fmtNear(p.amount)}</td></tr>`).join('');
-  // Bingo and the coin draw their result here; the spinner's own wheel above
+  // Bingo, the coin and the die draw their result here; the spinner's own wheel above
   // has just landed on it, so this card only records the number it stopped at.
   const g = game();
   const roll = r.draws[0];
@@ -661,6 +681,8 @@ function renderLast(r) {
       ? bingoDrum(r.draws) + cap
     : g && g.kind === 'CoinFlip' && g.outcomes === 2
       ? coinFlip(roll) + cap
+    : onDice()
+      ? diceRoll(roll) + cap
       : `<div class="roll">${label(roll)}</div>` + cap)
     + (rows ? `<div class="tscroll"><table><tbody>${rows}</tbody></table></div>` : '')
     + `<div class="metas" style="margin-top:10px">${keyChip(r.ckd.big_y)}${keyChip(r.ckd.big_c)}</div>`;
